@@ -17,8 +17,13 @@ permissions:
 
 jobs:
   review:
-    # Only review PRs that add examples (not fixes to existing ones from humans)
-    if: contains(github.event.pull_request.labels.*.name, 'type:example') || contains(github.event.pull_request.labels.*.name, 'type:fix')
+    # Match agent PRs by title pattern (labels may not be applied yet on `opened`)
+    # Also match human PRs that added labels manually
+    if: |
+      startsWith(github.event.pull_request.title, '[Example]') ||
+      startsWith(github.event.pull_request.title, '[Fix]') ||
+      contains(github.event.pull_request.labels.*.name, 'type:example') ||
+      contains(github.event.pull_request.labels.*.name, 'type:fix')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -517,6 +517,10 @@ git push origin "$BRANCH"
 ## Step 9 — Create the PR
 
 ```bash
+# Ensure base type labels exist (idempotent — safe to re-run)
+gh label create "type:example" --color "0075ca" --description "New example app"      --force
+gh label create "type:fix"     --color "d93f0b" --description "Fix to existing example" --force
+
 # Create language and integration labels
 gh label create "language:${LANGUAGE_SLUG}" \
   --color "bfe5bf" --description "Language: ${LANGUAGE_SLUG}" --force
