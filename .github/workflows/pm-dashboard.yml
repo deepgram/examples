@@ -1,29 +1,22 @@
-name: Update README Status Table
-
-# Runs every hour, tests all examples, updates the README table with live
-# pass/fail/needs-credentials status, then auto-merges via PR.
-#
-# Why a PR instead of a direct push: branch protection requires all changes
-# to go through PRs. This workflow posts e2e-api-check:success itself
-# (README-only change, nothing to test) so the PR can auto-merge immediately.
+name: PM — Dashboard
 
 on:
   schedule:
-    - cron: '5 * * * *'   # :05 past every hour
+    - cron: '5 */6 * * *'   # Every 6 hours at :05
   workflow_dispatch:
 
 concurrency:
-  group: update-readme-status
-  cancel-in-progress: false   # finish the current run before starting another
-
-permissions:
-  contents: write
-  pull-requests: write
-  statuses: write
+  group: pm-dashboard
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,28 +43,23 @@ jobs:
         id: date
         run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Check for existing status PR
+      - name: Check for existing dashboard PR
         id: existing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          EXISTING=$(gh pr list --repo ${{ github.repository }} \
-            --state open \
+          N=$(gh pr list --repo ${{ github.repository }} --state open \
             --search "docs: update examples status table" \
             --json number --jq '.[0].number' 2>/dev/null)
-          if [ -n "$EXISTING" ]; then
-            echo "Open status PR #$EXISTING already exists — skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
+          [ -n "$N" ] && echo "skip=true" >> $GITHUB_OUTPUT \
+                      || echo "skip=false" >> $GITHUB_OUTPUT
 
-      - name: Run agent
+      - name: Run dashboard agent
         if: steps.existing.outputs.skip == 'false'
         uses: anthropics/claude-code-action@beta
         env:
           KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
-          KAPA_PROJECT_ID: 1908afc6-c134-4c6f-a684-ed7d8ce91759
+          KAPA_PROJECT_ID: ${{ vars.KAPA_PROJECT_ID }}
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
@@ -92,8 +80,9 @@ jobs:
           mode: agent
           model: claude-opus-4-6
           allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          timeout_minutes: 30
           direct_prompt: |
-            Read and execute `instructions/update-readme-status.md`.
+            Read and execute instructions/pm-dashboard.md.
 
             Context:
             - Today's date: ${{ steps.date.outputs.date }}

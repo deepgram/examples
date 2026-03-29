@@ -1,0 +1,70 @@
+name: Lead — Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'examples/**'
+  schedule:
+    - cron: '37 * * * *'   # Hourly sweep for unreviewed PRs
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: false
+
+concurrency:
+  group: lead-review-${{ github.event.pull_request.number || inputs.pr_number || 'sweep' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  review:
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.title, '[Example]') ||
+      startsWith(github.event.pull_request.title, '[Fix]') ||
+      contains(github.event.pull_request.labels.*.name, 'type:example') ||
+      contains(github.event.pull_request.labels.*.name, 'type:fix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Configure git
+        run: |
+          git config user.name "examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Run instruction
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Glob,Grep"
+          timeout_minutes: 20
+          direct_prompt: |
+            Read and execute instructions/lead-review.md.
+
+            Context:
+            - PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}
+            - Trigger: ${{ github.event_name }}
+        env:
+          KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
+          KAPA_PROJECT_ID: ${{ vars.KAPA_PROJECT_ID }}
