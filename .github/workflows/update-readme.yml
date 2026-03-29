@@ -1,6 +1,12 @@
 name: Update README
 
-# Rebuilds the examples table in README.md whenever a PR merges into main.
+# Rebuilds the examples table in README.md after any example is merged.
+#
+# Two triggers:
+#  1. pull_request: closed — fires when a HUMAN merges a PR (their token, not GITHUB_TOKEN)
+#  2. schedule every hour — backstop for bot merges (GITHUB_TOKEN merges don't fire PR events)
+#
+# The scheduled run is idempotent — if nothing changed, the agent commits nothing.
 
 on:
   pull_request:
@@ -8,6 +14,9 @@ on:
     branches: [main]
     paths:
       - 'examples/**'
+  schedule:
+    - cron: '45 * * * *'   # :45 past every hour — 15 min after process-open-prs runs
+  workflow_dispatch:
 
 concurrency:
   group: update-readme
@@ -19,7 +28,8 @@ permissions:
 
 jobs:
   update:
-    if: github.event.pull_request.merged == true
+    # For PR events: only run on merged PRs. For schedule/dispatch: always run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,30 +57,31 @@ jobs:
           model: claude-opus-4-6
           allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
           direct_prompt: |
-            Update the examples table in README.md to reflect the current state of the
-            examples/ directory.
+            Rebuild the examples table in README.md to reflect the current state of
+            the examples/ directory on main.
 
             Steps:
             1. Read README.md
-            2. List all directories in examples/ (excluding .gitkeep)
+            2. List all directories in examples/ that start with a digit (skip .gitkeep)
             3. For each example directory, read its README.md to extract:
                - Title (first H1 heading)
-               - Language (from package.json/requirements.txt/go.mod presence)
-               - Products (from metadata block in README or PR label)
-               - Integration name (from directory slug or README)
-            4. Rebuild the table between the markers:
+               - Language (from package.json → Node.js, requirements.txt → Python, go.mod → Go, etc.)
+               - Products (look for product mentions in the README: STT, TTS, agents, intelligence)
+               - Integration name (from the directory slug after the number prefix)
+            4. Rebuild the table between these exact markers (preserve the markers):
                <!-- examples-table-start -->
                | # | Example | Language | Products | Integration |
                |---|---------|----------|----------|-------------|
-               | [010](examples/010-.../README.md) | Title | Node.js | STT | Twilio |
-               ...
+               | [010](examples/010-getting-started-node/) | Getting started — Node.js | Node.js | STT | Deepgram SDK |
                <!-- examples-table-end -->
-            5. Commit and push directly to main:
+            5. Only commit if the table actually changed:
+               git diff --quiet README.md && echo "No changes" && exit 0
                git add README.md
-               git commit -m "docs(readme): update examples table after merge of PR #${{ github.event.pull_request.number }}"
+               git commit -m "docs(readme): rebuild examples table [skip ci]"
                git push origin main
 
             Context:
-            - PR_NUMBER: ${{ github.event.pull_request.number }}
+            - Trigger: ${{ github.event_name }}
+            - PR merged (if PR event): ${{ github.event.pull_request.number }}
             - Today's date: ${{ steps.date.outputs.date }}
             - Repository: ${{ github.repository }}

@@ -202,6 +202,29 @@ MERGE_STATE=$(gh pr view $PR_NUMBER --json mergeStateStatus --jq '.mergeStateSta
 [ "$MERGE_STATE" = "BEHIND" ] && gh pr update-branch $PR_NUMBER 2>/dev/null || true
 ```
 
+## Step 7b — Rebuild README after any merges
+
+If you merged one or more PRs in this run, update the examples table in README.md
+immediately rather than waiting for the next update-readme cron run.
+
+```bash
+# Only do this if at least one PR was merged in this run
+git checkout main
+git pull origin main
+
+# Rebuild the examples table (same logic as update-readme.yml)
+# Read each examples/* directory, extract title/language/products/integration
+# from README.md, and rewrite the table between the markers:
+# <!-- examples-table-start --> ... <!-- examples-table-end -->
+
+# Commit only if changed
+git diff --quiet README.md || (
+  git add README.md
+  git commit -m "docs(readme): rebuild examples table after batch merge [skip ci]"
+  git push origin main
+)
+```
+
 ## Step 8 — Summary
 
 After processing all PRs, post a summary to the most recent open PR or create
