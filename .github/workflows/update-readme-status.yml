@@ -1,0 +1,102 @@
+name: Update README Status Table
+
+# Runs every hour, tests all examples, updates the README table with live
+# pass/fail/needs-credentials status, then auto-merges via PR.
+#
+# Why a PR instead of a direct push: branch protection requires all changes
+# to go through PRs. This workflow posts e2e-api-check:success itself
+# (README-only change, nothing to test) so the PR can auto-merge immediately.
+
+on:
+  schedule:
+    - cron: '5 * * * *'   # :05 past every hour
+  workflow_dispatch:
+
+concurrency:
+  group: update-readme-status
+  cancel-in-progress: false   # finish the current run before starting another
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Check for existing status PR
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh pr list --repo ${{ github.repository }} \
+            --state open \
+            --search "docs: update examples status table" \
+            --json number --jq '.[0].number' 2>/dev/null)
+          if [ -n "$EXISTING" ]; then
+            echo "Open status PR #$EXISTING already exists — skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run agent
+        if: steps.existing.outputs.skip == 'false'
+        uses: anthropics/claude-code-action@beta
+        env:
+          KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
+          KAPA_PROJECT_ID: 1908afc6-c134-4c6f-a684-ed7d8ce91759
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          VONAGE_APPLICATION_ID: ${{ secrets.VONAGE_APPLICATION_ID }}
+          VONAGE_PRIVATE_KEY: ${{ secrets.VONAGE_PRIVATE_KEY }}
+          DAILY_API_KEY: ${{ secrets.DAILY_API_KEY }}
+          PIPECAT_API_KEY: ${{ secrets.PIPECAT_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          direct_prompt: |
+            Read and execute `instructions/update-readme-status.md`.
+
+            Context:
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}
+            - Run ID: ${{ github.run_id }}
+            - Server URL: ${{ github.server_url }}
