@@ -89,6 +89,28 @@ jobs:
         with:
           go-version: '1.22'
 
+      - name: Set up Java
+        if: steps.find.outputs.has_examples == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # DEEPGRAM_API_KEY is the minimum required credential for every example.
+      # If it's not configured as a repo secret, nothing can ever be tested.
+      # Fail fast with a clear message rather than letting examples silently skip.
+      - name: Verify DEEPGRAM_API_KEY is configured
+        if: steps.find.outputs.has_examples == 'true'
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          if [ -z "$DEEPGRAM_API_KEY" ]; then
+            echo "::error::DEEPGRAM_API_KEY is not set as a repository secret."
+            echo "All examples require this key. Add it at: Settings → Secrets → Actions."
+            exit 1
+          fi
+          echo "✓ DEEPGRAM_API_KEY is configured"
+
       - name: Run tests
         if: steps.find.outputs.has_examples == 'true'
         id: run
@@ -125,6 +147,9 @@ jobs:
             [ -f "$dir/requirements.txt" ] && LANG="python"
             [ -f "$dir/pyproject.toml" ]  && LANG="python"
             [ -f "$dir/go.mod" ]          && LANG="go"
+            [ -f "$dir/pom.xml" ]         && LANG="java"
+            [ -f "$dir/build.gradle" ]    && LANG="java"
+            [ -f "$dir/build.gradle.kts" ] && LANG="java"
 
             if [ -z "$LANG" ]; then
               echo "  No recognised language marker — skipping"
@@ -197,6 +222,13 @@ jobs:
               else
                 echo "  ✗ FAILED"
                 FAILED="$FAILED $dir"
+              fi
+
+            elif [ "$LANG" = "java" ]; then
+              if [ -f "pom.xml" ]; then
+                if mvn test -q 2>&1; then echo "  ✓ PASSED"; else echo "  ✗ FAILED"; FAILED="$FAILED $dir"; fi
+              else
+                if ./gradlew test 2>&1; then echo "  ✓ PASSED"; else echo "  ✗ FAILED"; FAILED="$FAILED $dir"; fi
               fi
             fi
 

@@ -16,6 +16,7 @@ Available SDKs:
 - Node.js / TypeScript: `@deepgram/sdk` (v5+)
 - Python: `deepgram-sdk` (v3+)
 - Go: `github.com/deepgram/deepgram-go-sdk`
+- Java: `com.deepgram:deepgram-java-sdk` (Maven/Gradle)
 - .NET: `Deepgram`
 - Rust: `deepgram-rust-sdk`
 
