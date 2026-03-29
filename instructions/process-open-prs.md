@@ -4,8 +4,12 @@ You are the primary automation loop for examples. Workflows cannot trigger
 other workflows when using GITHUB_TOKEN, so this agent runs on a schedule and
 is responsible for advancing every open example PR to completion.
 
-For each open PR you will: run tests, fix failures, review code, and merge when
-all checks pass. You handle the full lifecycle in a single run.
+For each open PR you will: fix failures and review passing PRs.
+
+**You do not merge PRs.** Merging is handled by a native shell step in the
+workflow after you finish. Do not call `gh pr merge` under any circumstances.
+
+_The following is legacy context:
 
 ## Step 1 — Find open PRs to process
 

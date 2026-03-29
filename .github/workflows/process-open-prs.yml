@@ -191,7 +191,9 @@ jobs:
           echo ""
           echo "Test results: $ALL_RESULTS"
 
-  # ── Phase 2: Agent reviews, fixes, and merges ──────────────────────────────
+  # ── Phase 2: Agent fixes and reviews (NO merging) ─────────────────────────
+  # Merging is handled by Phase 3 in native shell — never delegated to the agent
+  # because LLM agents cannot be trusted to reliably enforce conditional logic.
   agent:
     needs: test-prs
     if: needs.test-prs.outputs.has_prs == 'true'
@@ -222,7 +224,7 @@ jobs:
         id: date
         run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Run agent
+      - name: Run agent (fix and review only)
         uses: anthropics/claude-code-action@beta
         env:
           KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
@@ -241,15 +243,78 @@ jobs:
             ${{ needs.test-prs.outputs.results }}
 
             Format: "PR_NUMBER:STATUS" where STATUS is:
-              PASS         — all tests passed, safe to review and merge
-              FAIL         — tests failed, needs fixing
-              MISSING_CREDS — needs repository secrets, leave open
-              SKIP         — branch unavailable, skip
+              PASS          — tests passed; review this PR and apply status:review-passed if good
+              FAIL          — tests failed; fix the code
+              MISSING_CREDS — needs repository secrets; leave open, do nothing
+              SKIP          — branch unavailable; skip
 
-            CRITICAL MERGE RULE:
-            Only merge PRs with status PASS. Never merge FAIL, MISSING_CREDS, or SKIP.
-            A PASS PR still needs status:review-passed label before merging.
+            YOUR JOB: fix failing PRs and review passing PRs.
+            DO NOT MERGE ANYTHING. Merging is handled by a separate workflow step
+            after you finish. You cannot and should not merge PRs.
 
             Today's date: ${{ steps.date.outputs.date }}
             Repository: ${{ github.repository }}
             Run ID: ${{ github.run_id }}
+
+  # ── Phase 3: Merge — native shell, hard gate, no LLM involved ─────────────
+  merge:
+    needs: [test-prs, agent]
+    if: needs.test-prs.outputs.has_prs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge PRs that passed all gates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULTS: ${{ needs.test-prs.outputs.results }}
+        run: |
+          echo "Test results from Phase 1: $RESULTS"
+          MERGED=0
+
+          for entry in $RESULTS; do
+            PR_NUM=$(echo "$entry" | cut -d: -f1)
+            STATUS=$(echo "$entry" | cut -d: -f2)
+
+            echo ""
+            echo "── PR #$PR_NUM (Phase 1 status: $STATUS) ──"
+
+            # Hard gate 1: tests must have passed
+            if [ "$STATUS" != "PASS" ]; then
+              echo "  Skipping — status is $STATUS, not PASS"
+              continue
+            fi
+
+            # Hard gate 2: must have review-passed label
+            LABELS=$(gh pr view "$PR_NUM" --repo ${{ github.repository }} \
+              --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null)
+            echo "  Labels: $LABELS"
+
+            if ! echo "$LABELS" | grep -q "status:review-passed"; then
+              echo "  Skipping — missing status:review-passed label"
+              continue
+            fi
+
+            # Hard gate 3: must not have any blocking labels
+            if echo "$LABELS" | grep -qE "status:fix-needed|status:needs-credentials"; then
+              echo "  Skipping — has blocking label"
+              continue
+            fi
+
+            # Hard gate 4: PR must still be open
+            PR_STATE=$(gh pr view "$PR_NUM" --repo ${{ github.repository }} \
+              --json state --jq '.state' 2>/dev/null)
+            if [ "$PR_STATE" != "OPEN" ]; then
+              echo "  Skipping — PR state is $PR_STATE"
+              continue
+            fi
+
+            echo "  ✓ All gates passed — merging PR #$PR_NUM"
+            gh pr merge "$PR_NUM" \
+              --repo ${{ github.repository }} \
+              --squash \
+              --delete-branch \
+              --subject "$(gh pr view $PR_NUM --repo ${{ github.repository }} --json title --jq '.title')" \
+            && MERGED=$((MERGED + 1)) || echo "  Merge failed for PR #$PR_NUM"
+          done
+
+          echo ""
+          echo "Merged $MERGED PR(s) this run."
