@@ -22,7 +22,9 @@ If an example requires external credentials that aren't configured as repository
 <!-- examples-table-start -->
 | # | Example | Language | Products | Integration |
 |---|---------|----------|----------|-------------|
-| [010](examples/010-getting-started-node/) | Getting started — Node.js | Node.js | STT | Deepgram SDK |
+| [010](examples/010-getting-started-node/) | Getting Started — Transcribe a URL with Node.js | Node.js | STT | Deepgram SDK |
+| [020](examples/020-twilio-media-streams-node/) | Twilio Media Streams — Real-Time Call Transcription | Node.js | STT | Twilio Media Streams |
+| [030](examples/030-livekit-agents-python/) | LiveKit Agents — Voice Assistant with Deepgram STT | Python | STT, Agents | LiveKit Agents |
 <!-- examples-table-end -->
 
 ## Directory structure
