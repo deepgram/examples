@@ -1,0 +1,21 @@
+name: Suggest anything
+description: Request a new example, report a broken one, or share any idea — write whatever feels natural
+body:
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What's on your mind?
+      description: No format required. Could be "an example showing Twilio + Deepgram", "the Discord bot is broken", "would be cool to have a Flutter demo", or just a rough idea.
+      placeholder: |
+        Examples of things that work:
+        - "show me how to use Deepgram with LangChain"
+        - "the Twilio example fails when I run it"
+        - "I want to transcribe YouTube videos with Python"
+        - "LiveKit voice agent example would be great"
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Any extra context? (optional)
+      description: Language preference, links, error messages, etc.
