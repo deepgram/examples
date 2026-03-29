@@ -3,11 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// ── Credential check ─────────────────────────────────────────────────────────
-// Exit code convention across all examples in this repo:
-//   0 = all tests passed
-//   1 = real test failure (code bug, assertion error, unexpected API response)
-//   2 = missing credentials (expected in CI until secrets are configured)
 const envExample = path.join(__dirname, '..', '.env.example');
 const required = fs.readFileSync(envExample, 'utf8')
   .split('\n')
@@ -19,9 +14,7 @@ if (missing.length > 0) {
   console.error(`MISSING_CREDENTIALS: ${missing.join(',')}`);
   process.exit(2);
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
-// SDK v5: DeepgramClient (class) replaces createClient() (function) from v3/v4.
 const { DeepgramClient } = require('@deepgram/sdk');
 
 const KNOWN_AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
@@ -32,7 +25,6 @@ async function testPreRecordedSTT() {
 
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
 
-  // SDK v5: flat single options object, throws on error.
   const data = await deepgram.listen.v1.media.transcribeUrl({
     url: KNOWN_AUDIO_URL,
     model: 'nova-3',
@@ -60,17 +52,14 @@ async function testPreRecordedSTT() {
 async function testLiveWebSocketConnection() {
   console.log('\nTesting Deepgram live WebSocket connection...');
 
-  // Verify we can open a live STT WebSocket — this confirms the API key
-  // has live transcription permissions and the endpoint is reachable.
-  // We don't send audio (no microphone in CI), just verify the handshake.
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
 
-  // SDK v5: createConnection() is async; finish() is now close()
-  const connection = await deepgram.listen.v1.createConnection({
+  const connection = await deepgram.listen.v1.connect({
     model: 'nova-3',
     encoding: 'linear16',
     sample_rate: 16000,
     channels: 1,
+    Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
   });
 
   await new Promise((resolve, reject) => {
@@ -81,6 +70,7 @@ async function testLiveWebSocketConnection() {
     connection.on('open', () => {
       clearTimeout(timeout);
       console.log('✓ Live WebSocket connection opened');
+      connection.sendCloseStream({ type: 'CloseStream' });
       connection.close();
       resolve();
     });
@@ -89,6 +79,8 @@ async function testLiveWebSocketConnection() {
       clearTimeout(timeout);
       reject(new Error(`WebSocket error: ${err.message || err}`));
     });
+
+    connection.connect();
   });
 
   console.log('✓ Live WebSocket connection closed cleanly');
