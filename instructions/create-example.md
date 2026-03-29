@@ -111,6 +111,56 @@ mkdir -p "${EXAMPLE_DIR}/src" "${EXAMPLE_DIR}/tests"
 
 ## Step 7 — Write the example
 
+### Commenting standard — this is critical
+
+Comments are the most valuable part of an example. A developer cloning this will read the code to understand how to adapt it. Comments must explain **why**, not what.
+
+**Do not write:**
+```js
+// Create client
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+```
+
+**Do write:**
+```js
+// createClient() is the main entry point for the JS SDK. You can also pass
+// options here to point at a self-hosted instance:
+//   createClient(key, { global: { url: 'https://your-host.com' } })
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+```
+
+**Things worth commenting on in every example:**
+
+1. **Why this approach over the obvious alternative**
+   - "We use WebSocket here instead of HTTP because Twilio sends audio in chunks — polling would add 500ms+ latency per chunk"
+   - "We buffer 100ms of audio before sending to avoid Deepgram receiving many tiny packets"
+
+2. **SDK-specific gotchas**
+   - "The JS SDK returns `{ result, error }` instead of throwing — always check `error` before using `result`"
+   - "The Python SDK's streaming response is an async generator — you must iterate it with `async for`"
+   - "`transcribeUrl()` has Deepgram fetch the URL server-side; use `transcribeFile()` for local files"
+
+3. **Parameter choices and alternatives**
+   - "nova-2 is the general-purpose model. For phone calls use nova-2-phonecall; for medical use nova-2-medical"
+   - "smart_format adds punctuation and formats numbers/dates — highly recommended, adds ~10ms"
+   - "diarize: true adds speaker labels but adds ~200ms. Omit for single-speaker audio"
+
+4. **What the response structure looks like and why**
+   - "channels[0] is always present; stereo audio produces two channels"
+   - "confidence is 0–1. Below 0.7 usually means poor audio quality or heavy accent"
+
+5. **Error handling rationale**
+   - "We check for missing API key before SDK init because the SDK error ('401 Unauthorized') is less clear than telling the developer exactly what to do"
+   - "A 402 here means the free tier quota is exceeded, not a code bug"
+
+6. **Integration-specific pain points**
+   - "Twilio sends μ-law encoded audio by default — we convert to linear16 here because Deepgram's latency is lower with linear16"
+   - "LiveKit's audio track arrives as Opus packets; the SDK handles decoding but you need to set encoding: 'opus' in the Deepgram options"
+
+7. **Anything a senior developer would tell a junior who asked "why not just...?"**
+
+Comments should be at the point of the code they explain, not clustered at the top. Aim for one meaningful comment per logical block, not one per line.
+
 ### Required files for every example
 
 #### `README.md`
