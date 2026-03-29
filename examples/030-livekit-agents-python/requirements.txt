@@ -3,3 +3,5 @@ livekit-plugins-deepgram~=1.4
 livekit-plugins-noise-cancellation~=0.2
 openai>=1.0.0
 python-dotenv>=1.0.0
+# livekit-plugins-deepgram v1.5+ dropped transitive deepgram-sdk dep
+deepgram-sdk>=6.0.0

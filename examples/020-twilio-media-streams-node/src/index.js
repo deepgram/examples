@@ -63,15 +63,16 @@ function createApp() {
 
   // Each phone call opens a separate WebSocket here.  Twilio sends JSON
   // messages with event types: connected, start, media, stop.
-  app.ws('/media', (twilioWs) => {
+  app.ws('/media', async (twilioWs) => {
     let dgConnection = null;
     let streamSid = null;
 
     console.log('[media] Twilio WebSocket connected');
 
-    // Open a parallel WebSocket to Deepgram for this call.
-    // SDK v5: listen.v1.live() returns a WebSocket connection instance.
-    dgConnection = deepgram.listen.v1.live(DEEPGRAM_LIVE_OPTIONS);
+    // SDK v5: listen.v1.createConnection() is async and returns a socket
+    // object that is NOT yet connected. Call .connect() to open the WebSocket.
+    // Replaces the old synchronous listen.v1.live() from earlier SDK versions.
+    dgConnection = await deepgram.listen.v1.createConnection(DEEPGRAM_LIVE_OPTIONS);
 
     dgConnection.on('open', () => {
       console.log('[deepgram] Connection opened');
@@ -85,19 +86,12 @@ function createApp() {
       console.log('[deepgram] Connection closed');
     });
 
-    // Deepgram sends transcript events here.  The is_final flag distinguishes
-    // partial (interim) results from stable ones.  In production you'd forward
-    // these to a UI, database, or analytics pipeline.
-    dgConnection.on('message', (msg) => {
-      try {
-        const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
-        const transcript = data?.channel?.alternatives?.[0]?.transcript;
-        if (transcript) {
-          const tag = data.is_final ? 'final' : 'interim';
-          console.log(`[${tag}] ${transcript}`);
-        }
-      } catch {
-        // Non-transcript control messages (Metadata, UtteranceEnd) — safe to ignore here.
+    // SDK v5 pre-parses the JSON — msg arrives as an object, no JSON.parse needed.
+    dgConnection.on('message', (data) => {
+      const transcript = data?.channel?.alternatives?.[0]?.transcript;
+      if (transcript) {
+        const tag = data.is_final ? 'final' : 'interim';
+        console.log(`[${tag}] ${transcript}`);
       }
     });
 
@@ -122,18 +116,20 @@ function createApp() {
           case 'media':
             // The payload is base64-encoded mulaw audio.  Deepgram's live
             // WebSocket accepts raw binary, so we decode from base64 first.
+            // SDK v5: sendMedia() replaces the old send() method.
             if (dgConnection) {
               const audio = Buffer.from(message.media.payload, 'base64');
-              dgConnection.send(audio);
+              dgConnection.sendMedia(audio);
             }
             break;
 
           case 'stop':
             // Call ended or stream was stopped.  Clean up the Deepgram
             // connection so it can return any final buffered transcript.
+            // SDK v5: close() replaces the old finish() method.
             console.log('[twilio] Stream stopped');
             if (dgConnection) {
-              dgConnection.finish();
+              dgConnection.close();
               dgConnection = null;
             }
             break;

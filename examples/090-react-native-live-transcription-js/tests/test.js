@@ -65,7 +65,8 @@ async function testLiveWebSocketConnection() {
   // We don't send audio (no microphone in CI), just verify the handshake.
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
 
-  const connection = deepgram.listen.v1.live({
+  // SDK v5: createConnection() is async; finish() is now close()
+  const connection = await deepgram.listen.v1.createConnection({
     model: 'nova-3',
     encoding: 'linear16',
     sample_rate: 16000,
@@ -80,8 +81,7 @@ async function testLiveWebSocketConnection() {
     connection.on('open', () => {
       clearTimeout(timeout);
       console.log('✓ Live WebSocket connection opened');
-      // Close cleanly — send empty buffer to flush, then close.
-      connection.finish();
+      connection.close();
       resolve();
     });
 
