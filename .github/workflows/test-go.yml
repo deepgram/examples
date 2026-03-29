@@ -118,6 +118,7 @@ jobs:
               return `**\`${dir}\`** requires: ${varList}`;
             }).join('\n');
 
+            // Label is read by process-open-prs.yml cron — does not trigger fix-pr.yml for bot PRs
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
@@ -125,7 +126,6 @@ jobs:
                 '## ⚠️ Missing credentials — E2E tests cannot run',
                 '', lines, '',
                 '@deepgram-devrel — please add these as [repository secrets](../../settings/secrets/actions).',
-                '', '_Tests retry automatically once secrets are configured._'
               ].join('\n'),
             });
             try {

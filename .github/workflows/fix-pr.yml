@@ -1,5 +1,11 @@
 name: Fix PR
 
+# NOTE: This workflow only fires when a label is added by a HUMAN (not by
+# GITHUB_TOKEN). For bot-owned PRs, labels added by other workflows do not
+# trigger this. The process-open-prs.yml cron is the primary fix driver for
+# agent PRs. This workflow handles the case where a human manually applies
+# status:fix-needed to flag a PR for repair.
+
 on:
   pull_request:
     types: [labeled]

@@ -152,11 +152,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              // Label is read by process-open-prs.yml cron — does not trigger fix-pr.yml for bot PRs
               body: [
                 '## ⚠️ Missing credentials — E2E tests cannot run',
                 '', lines, '',
                 '@deepgram-devrel — please add these as [repository secrets](../../settings/secrets/actions).',
-                '', '_Tests retry automatically once secrets are configured._'
               ].join('\n'),
             });
             try {

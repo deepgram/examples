@@ -120,7 +120,11 @@ jobs:
           [ -n "$MISSING_CRED_EXAMPLES" ]  && echo "has_missing=true"   >> $GITHUB_OUTPUT \
                                            || echo "has_missing=false"  >> $GITHUB_OUTPUT
 
-      # ── Missing credentials → comment and label ──────────────────────────
+      # ── Missing credentials → comment + label ────────────────────────────
+      # Labels are read by process-open-prs.yml on its next cron run.
+      # Note: adding labels here via GITHUB_TOKEN does NOT trigger fix-pr.yml
+      # or any other event-based workflow — that's intentional, process-open-prs
+      # is the driver for bot PRs.
       - name: Post missing-credentials comment
         if: steps.run-tests.outputs.has_missing == 'true'
         uses: actions/github-script@v7
@@ -143,8 +147,6 @@ jobs:
               '',
               '@deepgram-devrel — please add these as [repository secrets]' +
                 '(../../settings/secrets/actions) to unblock testing.',
-              '',
-              '_Tests will re-run automatically once secrets are configured._'
             ].join('\n');
 
             await github.rest.issues.createComment({
@@ -163,7 +165,9 @@ jobs:
               });
             } catch {}
 
-      # ── Real test failures → label for fix agent ─────────────────────────
+      # ── Real test failures → label for status tracking ───────────────────
+      # process-open-prs.yml reads this label and runs the fix agent on its
+      # next cron run. Does NOT directly trigger fix-pr.yml for bot PRs.
       - name: Label as fix-needed
         if: steps.run-tests.outputs.has_failures == 'true'
         uses: actions/github-script@v7

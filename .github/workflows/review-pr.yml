@@ -1,5 +1,10 @@
 name: Review PR
 
+# NOTE: This workflow fires on pull_request events, which only trigger when the
+# PR author or updater is NOT using GITHUB_TOKEN. For human-opened PRs this
+# fires correctly. For agent PRs (opened via GITHUB_TOKEN), process-open-prs.yml
+# is the primary review driver. Both paths end up calling review-example.md.
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]

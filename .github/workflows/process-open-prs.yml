@@ -1,0 +1,97 @@
+name: Process Open PRs
+
+# This is the backbone of the autonomous loop.
+#
+# Workflows cannot trigger other workflows using GITHUB_TOKEN, so event-based
+# chaining (test fails → label → fix fires → commit → tests re-run) does not
+# work for bot-owned PRs. Instead this runs on a schedule and drives the full
+# PR lifecycle in a single agent invocation:
+#
+#   open PR → run tests → fix failures → review → merge
+#
+# The event-based test/review/fix workflows still run for human-opened PRs
+# (triggered by the PR author's token, not GITHUB_TOKEN) and are worth keeping
+# as CI status checks — but for agent PRs this cron is the primary driver.
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # Every hour
+  workflow_dispatch:
+
+concurrency:
+  group: process-open-prs
+  cancel-in-progress: false   # Never cancel — finish the current batch first
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "dx-examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      # Set up all runtimes upfront so the agent can run any language's tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Check for open PRs
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh pr list --state open \
+            --json title \
+            --jq '[.[] | select(.title | test("^\\[(Example|Fix)\\]"))] | length')
+          echo "pr_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "has_prs=$([ "$COUNT" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "Found $COUNT open example/fix PRs"
+
+      - name: Process open PRs
+        if: steps.check.outputs.has_prs == 'true'
+        uses: anthropics/claude-code-action@beta
+        env:
+          KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
+          KAPA_PROJECT_ID: 1908afc6-c134-4c6f-a684-ed7d8ce91759
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          direct_prompt: |
+            Read and execute the instructions in `instructions/process-open-prs.md`.
+
+            Context:
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}
+            - Run ID: ${{ github.run_id }}
+            - Open PR count: ${{ steps.check.outputs.pr_count }}
+            - DEEPGRAM_API_KEY is available in the environment for running E2E tests
+
+      - name: Skip message
+        if: steps.check.outputs.has_prs == 'false'
+        run: echo "No open example PRs to process — skipping."
