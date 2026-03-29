@@ -1,0 +1,76 @@
+name: "Queue: New Example"
+description: Request a new example app to be built by the agent
+labels: ["queue:new-example"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The agent will pick this up on its next daily run and build the example.
+        Fill in as much detail as you can — more context produces better examples.
+
+  - type: input
+    id: integration
+    attributes:
+      label: Integration
+      description: What platform, framework, or ecosystem should this example use?
+      placeholder: e.g. "Twilio Voice", "LangChain", "Next.js + Vercel AI SDK"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      description: Which language should the example be in?
+      options:
+        - Node.js / TypeScript
+        - Python
+        - Go
+        - Rust
+        - .NET / C#
+        - Java
+        - Ruby
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: products
+    attributes:
+      label: Deepgram products
+      description: Which Deepgram products should this example demonstrate?
+      options:
+        - label: Speech-to-text (STT)
+        - label: Text-to-speech (TTS)
+        - label: Voice agents
+        - label: Audio intelligence
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What should this example do?
+      description: Describe the use case. What does a developer build with this?
+      placeholder: |
+        e.g. "Transcribe incoming Twilio voice calls in real-time using Deepgram STT
+        and display the live transcript in a browser dashboard."
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Reference links
+      description: Links to the integration's docs, SDK, or relevant examples
+      placeholder: |
+        - https://www.twilio.com/docs/voice/media-streams
+        - https://developers.deepgram.com/docs/getting-started-with-live-streaming-audio
+
+  - type: textarea
+    id: env_vars
+    attributes:
+      label: Required credentials
+      description: List any environment variables you know will be needed
+      placeholder: |
+        - DEEPGRAM_API_KEY
+        - TWILIO_ACCOUNT_SID
+        - TWILIO_AUTH_TOKEN

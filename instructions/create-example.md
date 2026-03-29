@@ -1,0 +1,411 @@
+# Instruction: Create a New Example
+
+You are an agent working in the `dx-examples` repository for Deepgram. Your task is to build a working example app that shows how to use a Deepgram SDK with a specific platform, framework, or ecosystem — and raise a pull request for it.
+
+## Context
+
+Deepgram provides:
+- **STT** — `@deepgram/sdk` (Node.js), `deepgram` (Python), `github.com/deepgram/deepgram-go-sdk` (Go)
+- **TTS** — same SDKs
+- **Voice agents** — same SDKs, WebSocket-based
+- **Audio intelligence** — same SDKs
+
+Always use the official Deepgram SDK for the chosen language. Do not make raw HTTP calls unless there is no SDK for that language.
+
+## Slugification convention
+
+```bash
+slugify() {
+  echo "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9]/-/g' \
+    | sed 's/-\+/-/g' \
+    | sed 's/^-//;s/-$//'
+}
+```
+
+## Step 1 — Check the queue for work
+
+If invoked from a queue issue, read it:
+```bash
+gh issue list --label "queue:new-example" --state open \
+  --json number,title,body --limit 10
+```
+
+Parse `<!-- metadata ... -->` blocks to get `slug`, `language`, `products`. If no queue issue, proceed with whatever integration was provided in context.
+
+## Step 2 — Find the next example number
+
+```bash
+LAST=$(ls examples/ | grep -E '^[0-9]' | sort -n | tail -1 | grep -oE '^[0-9]+')
+NEXT=$(( ${LAST:-0} + 10 ))
+PADDED=$(printf "%03d" $NEXT)
+echo "Next number: $PADDED"
+```
+
+## Step 3 — Research the integration
+
+Before writing any code:
+
+1. Fetch the integration's documentation using WebFetch or WebSearch
+2. Find an existing SDK or package for the language chosen
+3. Understand how audio/voice flows through the integration (what format, what protocol)
+4. Identify which Deepgram features make sense here (STT, TTS, agents, intelligence)
+5. Look at any existing Deepgram starter repos for this language to understand conventions, and identify which starters are most relevant to link from the example README:
+   ```bash
+   gh search repos --owner deepgram-starters --limit 30
+   # e.g. for Node.js STT look for: deepgram-starters/live-node, deepgram-starters/prerecorded-node
+   ```
+
+## Step 4 — Plan the example
+
+Decide:
+- **What it demonstrates** — one clear thing (e.g. "transcribe a Twilio voice call in real-time")
+- **Minimum viable scope** — enough to be useful, not exhaustive
+- **Required env vars** — list every external credential needed
+- **How to test it** — what assertion proves it works?
+
+A good example scope:
+- Narrow: one feature, one integration point
+- Realistic: a pattern a developer would actually use in production
+- Runnable: someone can clone it, set env vars, and run it
+
+## Step 5 — Create the branch
+
+```bash
+INTEGRATION_SLUG=$(slugify "{integration name}")
+LANGUAGE_SLUG=$(slugify "{language}")
+BRANCH="example/${INTEGRATION_SLUG}-${LANGUAGE_SLUG}"
+
+git checkout main
+git pull origin main
+git checkout -b "$BRANCH"
+```
+
+## Step 6 — Create the example directory
+
+```bash
+EXAMPLE_DIR="examples/${PADDED}-${INTEGRATION_SLUG}-${LANGUAGE_SLUG}"
+mkdir -p "${EXAMPLE_DIR}/src" "${EXAMPLE_DIR}/tests"
+```
+
+## Step 7 — Write the example
+
+### Required files for every example
+
+#### `README.md`
+```markdown
+# {Title}
+
+{2-3 sentence description of what this example demonstrates and why it's useful.}
+
+## What you'll build
+
+{One paragraph describing the end result — what does running this code do?}
+
+## Prerequisites
+
+- {Runtime and version, e.g. Node.js 18+}
+- Deepgram account — [get a free API key](https://console.deepgram.com/)
+- {Other service} account — [sign up](https://...)
+
+## Environment variables
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+| Variable | Where to find it |
+|----------|-----------------|
+| `DEEPGRAM_API_KEY` | [Deepgram console](https://console.deepgram.com/) |
+| `{OTHER_VAR}` | {Where to find it} |
+
+## Run
+
+{Exact commands to install and run, e.g.}
+
+```bash
+npm install
+npm start
+```
+
+## How it works
+
+{Step-by-step explanation of the key code — what happens when you run it?}
+
+## Related
+
+- [Deepgram {product} docs](https://developers.deepgram.com/docs/...)
+- [{Integration} docs]({url})
+
+## Starter templates
+
+If you want a ready-to-run base for your own project, check the [deepgram-starters](https://github.com/orgs/deepgram-starters/repositories) org — there are starter repos for every language and every Deepgram product.
+```
+
+#### `.env.example`
+One variable per line, no values, comments allowed:
+```
+# Deepgram
+DEEPGRAM_API_KEY=
+
+# {Integration name}
+{OTHER_VAR}=
+```
+
+#### Source code in `src/`
+
+Write minimal but real code. Follow these principles:
+- Use environment variables for all credentials (never hardcode)
+- Handle errors explicitly
+- Add brief inline comments where the logic isn't obvious
+- Use the latest stable Deepgram SDK version for the language
+
+#### Tests in `tests/`
+
+**The test convention is critical.** Every test must:
+1. Check for missing credentials FIRST, before doing anything else
+2. Exit with code `2` if any required env var is absent — this signals "missing credentials" to CI, not a code failure
+3. Exit with code `0` on success
+4. Exit with code `1` on a real failure
+
+**Node.js test pattern (`tests/test.js`):**
+```javascript
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+// ── Credential check ────────────────────────────────────────────────────────
+const envExample = path.join(__dirname, '..', '.env.example');
+const required = fs.readFileSync(envExample, 'utf8')
+  .split('\n')
+  .filter(l => /^[A-Z][A-Z0-9_]+=/.test(l))
+  .map(l => l.split('=')[0]);
+
+const missing = required.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`MISSING_CREDENTIALS: ${missing.join(',')}`);
+  process.exit(2);
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+async function run() {
+  // Import here so missing credentials exit before any module loading failures
+  const { createClient } = require('@deepgram/sdk');
+  const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+
+  // Test the integration
+  const { result, error } = await deepgram.listen.prerecorded.transcribeUrl(
+    { url: 'https://dpgr.am/spacewalk.wav' },
+    { model: 'nova-2', smart_format: true }
+  );
+  if (error) throw error;
+
+  const transcript = result.results.channels[0].alternatives[0].transcript;
+  if (!transcript || transcript.length < 10) throw new Error('Transcript too short');
+
+  console.log('✓ Integration working');
+  console.log(`  Transcript preview: "${transcript.substring(0, 80)}..."`);
+}
+
+run().then(() => process.exit(0)).catch(err => {
+  console.error('✗ Test failed:', err.message);
+  process.exit(1);
+});
+```
+
+**Python test pattern (`tests/test_example.py`):**
+```python
+import os
+import sys
+from pathlib import Path
+
+# ── Credential check ────────────────────────────────────────────────────────
+env_example = Path(__file__).parent.parent / ".env.example"
+required = [
+    line.split("=")[0].strip()
+    for line in env_example.read_text().splitlines()
+    if line and not line.startswith("#") and "=" in line and line[0].isupper()
+]
+missing = [k for k in required if not os.environ.get(k)]
+if missing:
+    print(f"MISSING_CREDENTIALS: {','.join(missing)}", file=sys.stderr)
+    sys.exit(2)
+# ────────────────────────────────────────────────────────────────────────────
+
+from deepgram import DeepgramClient, PrerecordedOptions
+
+def test_integration():
+    client = DeepgramClient(os.environ["DEEPGRAM_API_KEY"])
+    response = client.listen.prerecorded.v("1").transcribe_url(
+        {"url": "https://dpgr.am/spacewalk.wav"},
+        PrerecordedOptions(model="nova-2", smart_format=True),
+    )
+    transcript = response.results.channels[0].alternatives[0].transcript
+    assert len(transcript) > 10, "Transcript too short"
+    print(f"✓ Integration working")
+    print(f"  Transcript preview: '{transcript[:80]}...'")
+
+if __name__ == "__main__":
+    test_integration()
+```
+
+**Go test pattern (`tests/example_test.go`):**
+```go
+package tests
+
+import (
+    "os"
+    "path/filepath"
+    "bufio"
+    "strings"
+    "testing"
+    // deepgram SDK imports
+)
+
+func TestCredentials(t *testing.T) {
+    envFile := filepath.Join("..", ".env.example")
+    f, err := os.Open(envFile)
+    if err != nil {
+        t.Skip("no .env.example found")
+    }
+    defer f.Close()
+    var missing []string
+    scanner := bufio.NewScanner(f)
+    for scanner.Scan() {
+        line := scanner.Text()
+        if line == "" || strings.HasPrefix(line, "#") { continue }
+        parts := strings.SplitN(line, "=", 2)
+        if len(parts) < 1 || parts[0] == "" { continue }
+        if os.Getenv(parts[0]) == "" { missing = append(missing, parts[0]) }
+    }
+    if len(missing) > 0 {
+        t.Logf("MISSING_CREDENTIALS: %s", strings.Join(missing, ","))
+        t.Skip("missing credentials — skipping E2E test")
+    }
+}
+```
+
+#### Language-specific config files
+
+**Node.js — `package.json`:**
+```json
+{
+  "name": "{slug}",
+  "version": "1.0.0",
+  "description": "{description}",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.0.0"
+  }
+}
+```
+
+Always pin to a specific major version with `^` so agents can update later.
+
+**Python — `requirements.txt`:**
+```
+deepgram-sdk>=3.0.0
+```
+
+And `pyproject.toml` if the project uses it.
+
+**Go — `go.mod`:**
+```
+module github.com/deepgram/dx-examples/{slug}
+
+go 1.21
+
+require github.com/deepgram/deepgram-go-sdk/v3 v3.x.x
+```
+
+## Step 8 — Commit and push
+
+```bash
+git add "examples/${PADDED}-${INTEGRATION_SLUG}-${LANGUAGE_SLUG}/"
+git commit -m "feat(examples): add ${PADDED} — {description}"
+git push origin "$BRANCH"
+```
+
+## Step 9 — Create the PR
+
+```bash
+# Create language and integration labels
+gh label create "language:${LANGUAGE_SLUG}" \
+  --color "bfe5bf" --description "Language: ${LANGUAGE_SLUG}" --force
+
+gh label create "integration:${INTEGRATION_SLUG}" \
+  --color "c5def5" --description "Integration: {Integration Name}" --force
+
+PR_URL=$(gh pr create \
+  --title "[Example] {NNN} — {Title}" \
+  --label "type:example" \
+  --label "language:${LANGUAGE_SLUG}" \
+  --label "integration:${INTEGRATION_SLUG}" \
+  --base main \
+  --head "$BRANCH" \
+  --body "$(cat <<'EOF'
+## New example: {Title}
+
+<!-- metadata
+type: example
+number: {NNN}
+slug: {slug}
+language: {language}
+products: {stt|tts|agent|intelligence}
+integrations: {integration-slug}
+-->
+
+**Integration:** {Integration Name}
+**Language:** {Language}
+**Products:** {Deepgram products demonstrated}
+
+### What this example shows
+{2-3 sentences describing the use case}
+
+### Files added
+- `examples/{NNN}-{slug}/README.md`
+- `examples/{NNN}-{slug}/.env.example`
+- `examples/{NNN}-{slug}/src/` — source code
+- `examples/{NNN}-{slug}/tests/` — integration test
+
+### Required secrets
+{List env vars that must be configured as repo secrets for tests to pass, or "None — only DEEPGRAM_API_KEY required (already configured)"}
+
+---
+*Raised by create-example agent on {date}*
+EOF
+)")
+
+# Enable auto-merge — will activate once all checks pass
+PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+gh pr merge "$PR_NUMBER" --auto --squash
+
+echo "PR created: $PR_URL"
+```
+
+## Step 10 — Close queue issue (if applicable)
+
+```bash
+gh issue close {issue_number} --comment "Example PR raised: $PR_URL"
+```
+
+## Step 11 — Request Copilot review
+
+Post a comment to request Copilot code review:
+
+```bash
+gh pr comment "$PR_NUMBER" --body "@github-copilot please review this PR"
+```
+
+## Rules
+
+- Every example must have `README.md`, `.env.example`, source in `src/`, tests in `tests/`
+- Tests must implement the credential-check convention (exit 2 for missing creds)
+- Never hardcode credentials or API keys
+- Use the official Deepgram SDK for the chosen language
+- Keep examples minimal — one integration point, clearly demonstrated
+- Do not duplicate existing examples — check `examples/` and open PRs first
+- The example must be genuinely useful to a developer, not just a proof of concept

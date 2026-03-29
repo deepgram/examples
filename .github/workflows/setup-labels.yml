@@ -1,0 +1,56 @@
+name: Setup Labels
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/setup-labels.yml'
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create base labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          create_label() {
+            gh label create "$1" --color "$2" --description "$3" --force --repo "$REPO"
+          }
+
+          # Type labels
+          create_label "type:example"    "0075ca" "New example app"
+          create_label "type:fix"        "d93f0b" "Fix to existing example"
+          create_label "type:docs"       "e4e669" "Documentation update"
+
+          # Status labels
+          create_label "status:needs-credentials" "f9d0c4" "Missing env vars for E2E tests"
+          create_label "status:fix-needed"        "e11d48" "Tests failing — fix agent queued"
+          create_label "status:review-passed"     "0e8a16" "Self-review passed"
+
+          # Queue labels
+          create_label "queue:new-example"   "bfd4f2" "Queue: build a new example"
+          create_label "queue:fix-example"   "bfd4f2" "Queue: fix a broken example"
+
+          # Product labels
+          create_label "product:stt"          "5319e7" "Speech-to-text"
+          create_label "product:tts"          "5319e7" "Text-to-speech"
+          create_label "product:agent"        "5319e7" "Voice agents"
+          create_label "product:intelligence" "5319e7" "Audio intelligence"
+
+          # Language labels (seeded — agents add more dynamically)
+          create_label "language:node"   "f0db4f" "Language: Node.js / TypeScript"
+          create_label "language:python" "3572A5" "Language: Python"
+          create_label "language:go"     "00ADD8" "Language: Go"
+          create_label "language:rust"   "dea584" "Language: Rust"
+          create_label "language:dotnet" "178600" "Language: .NET / C#"
+          create_label "language:java"   "b07219" "Language: Java"
+          create_label "language:ruby"   "701516" "Language: Ruby"
+
+          echo "Labels configured."

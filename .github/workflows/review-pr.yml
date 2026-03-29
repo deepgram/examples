@@ -1,0 +1,48 @@
+name: Review PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'examples/**'
+
+concurrency:
+  group: review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    # Only review PRs that add examples (not fixes to existing ones from humans)
+    if: contains(github.event.pull_request.labels.*.name, 'type:example') || contains(github.event.pull_request.labels.*.name, 'type:fix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Run review agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Glob,Grep"
+          direct_prompt: |
+            Read and execute the instructions in `instructions/review-example.md`.
+
+            Context:
+            - PR_NUMBER: ${{ github.event.pull_request.number }}
+            - PR_TITLE: ${{ github.event.pull_request.title }}
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}

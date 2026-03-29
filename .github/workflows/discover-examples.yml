@@ -1,0 +1,52 @@
+name: Discover Examples
+
+on:
+  schedule:
+    - cron: '7 9 * * 1'   # Monday 09:07 UTC — weekly
+  workflow_dispatch:
+
+concurrency:
+  group: discover-examples
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "dx-examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Run discovery agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          direct_prompt: |
+            Read and execute the instructions in `instructions/discover-examples.md`.
+
+            Context:
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}
+            - Run ID: ${{ github.run_id }}
+
+            After discovering new integrations, also read and execute
+            `instructions/create-example.md` for the top 2 highest-priority
+            integrations you identified.

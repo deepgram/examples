@@ -1,0 +1,69 @@
+name: Fix PR
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: fix-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  fix:
+    # Only trigger on the specific fix label
+    if: github.event.label.name == 'status:fix-needed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Configure git
+        run: |
+          git config user.name "dx-examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Check fix attempt count
+        id: attempt-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          # Count commits by the bot on this branch that are fixes
+          FIX_COMMITS=$(git log --oneline --author="dx-examples-bot" | grep "^[a-f0-9]* fix(" | wc -l | tr -d ' ')
+          echo "fix_attempts=$FIX_COMMITS" >> $GITHUB_OUTPUT
+          if [ "$FIX_COMMITS" -ge 3 ]; then
+            echo "max_reached=true" >> $GITHUB_OUTPUT
+            gh pr comment $PR_NUMBER --body "@deepgram-devrel — the fix agent has made 3 repair attempts on this PR and tests are still failing. Manual intervention needed. Please review the test output and push a fix directly."
+          else
+            echo "max_reached=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run fix agent
+        if: steps.attempt-check.outputs.max_reached == 'false'
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          direct_prompt: |
+            Read and execute the instructions in `instructions/fix-example.md`.
+
+            Context:
+            - PR_NUMBER: ${{ github.event.pull_request.number }}
+            - PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}
+            - Fix attempt: ${{ steps.attempt-check.outputs.fix_attempts }} of 3

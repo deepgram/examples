@@ -1,0 +1,189 @@
+name: Test Python Examples
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'examples/**/*.py'
+      - 'examples/**/requirements*.txt'
+      - 'examples/**/pyproject.toml'
+      - 'examples/**/setup.py'
+
+concurrency:
+  group: test-python-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_python_examples: ${{ steps.detect.outputs.has_python_examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Python examples
+        id: detect
+        run: |
+          COUNT=0
+          for dir in examples/*/; do
+            if [ -f "${dir}requirements.txt" ] || [ -f "${dir}pyproject.toml" ] || [ -f "${dir}requirements-dev.txt" ]; then
+              COUNT=$((COUNT + 1))
+            fi
+          done
+          [ "$COUNT" -gt 0 ] && echo "has_python_examples=true" >> $GITHUB_OUTPUT \
+                              || echo "has_python_examples=false" >> $GITHUB_OUTPUT
+          echo "Found $COUNT Python example(s)"
+
+  test:
+    needs: detect
+    if: needs.detect.outputs.has_python_examples == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Run tests for all Python examples
+        id: run-tests
+        continue-on-error: true
+        run: |
+          FAILED_EXAMPLES=""
+          MISSING_CRED_EXAMPLES=""
+
+          for dir in examples/*/; do
+            HAS_PYTHON=false
+            [ -f "${dir}requirements.txt" ] && HAS_PYTHON=true
+            [ -f "${dir}pyproject.toml" ]   && HAS_PYTHON=true
+            [ "$HAS_PYTHON" = "false" ] && continue
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  Testing: $dir"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            pushd "$dir" > /dev/null
+
+            # ── Credential check ───────────────────────────────────
+            if [ -f ".env.example" ]; then
+              MISSING=""
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR_NAME="${line%%=*}"
+                VAR_NAME="${VAR_NAME// /}"
+                [ -z "$VAR_NAME" ] && continue
+                if [ -z "${!VAR_NAME+x}" ] || [ -z "${!VAR_NAME}" ]; then
+                  MISSING="$MISSING $VAR_NAME"
+                fi
+              done < ".env.example"
+
+              if [ -n "$MISSING" ]; then
+                TRIMMED=$(echo "$MISSING" | xargs | tr ' ' ',')
+                echo "⚠ MISSING_CREDENTIALS: $TRIMMED"
+                MISSING_CRED_EXAMPLES="${MISSING_CRED_EXAMPLES}${dir}:${TRIMMED}|"
+                popd > /dev/null
+                continue
+              fi
+            fi
+            # ──────────────────────────────────────────────────────
+
+            # Install dependencies
+            python -m pip install --upgrade pip
+            if [ -f "requirements.txt" ]; then
+              pip install -r requirements.txt 2>&1
+            elif [ -f "pyproject.toml" ]; then
+              pip install -e . 2>&1
+            fi
+
+            # Run tests — prefer pytest, fall back to direct execution
+            TEST_CMD=""
+            if find tests/ -name "test_*.py" -o -name "*_test.py" 2>/dev/null | grep -q .; then
+              pip install pytest -q
+              TEST_CMD="python -m pytest tests/ -v"
+            elif [ -d "tests/" ]; then
+              # Run all Python files in tests/ directory
+              for f in tests/*.py; do
+                TEST_CMD="python $f"
+                break
+              done
+            fi
+
+            if [ -n "$TEST_CMD" ]; then
+              if eval "$TEST_CMD" 2>&1; then
+                echo "✓ PASSED: $dir"
+              else
+                echo "✗ FAILED: $dir"
+                FAILED_EXAMPLES="$FAILED_EXAMPLES $dir"
+              fi
+            else
+              echo "⚠ No tests found in $dir — skipping"
+            fi
+
+            popd > /dev/null
+          done
+
+          echo "failed_examples=${FAILED_EXAMPLES}" >> $GITHUB_OUTPUT
+          echo "missing_credentials=${MISSING_CRED_EXAMPLES}" >> $GITHUB_OUTPUT
+          [ -n "$FAILED_EXAMPLES" ]        && echo "has_failures=true"  >> $GITHUB_OUTPUT \
+                                           || echo "has_failures=false" >> $GITHUB_OUTPUT
+          [ -n "$MISSING_CRED_EXAMPLES" ]  && echo "has_missing=true"   >> $GITHUB_OUTPUT \
+                                           || echo "has_missing=false"  >> $GITHUB_OUTPUT
+
+      - name: Post missing-credentials comment
+        if: steps.run-tests.outputs.has_missing == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missingRaw = '${{ steps.run-tests.outputs.missing_credentials }}';
+            const entries = missingRaw.split('|').filter(Boolean);
+            const lines = entries.map(e => {
+              const [dir, vars] = e.split(':');
+              const varList = vars.split(',').map(v => `\`${v.trim()}\``).join(', ');
+              return `**\`${dir}\`** requires: ${varList}`;
+            }).join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Missing credentials — E2E tests cannot run',
+                '', lines, '',
+                '@deepgram-devrel — please add these as [repository secrets](../../settings/secrets/actions).',
+                '', '_Tests retry automatically once secrets are configured._'
+              ].join('\n'),
+            });
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, labels: ['status:needs-credentials'],
+              });
+            } catch {}
+
+      - name: Label as fix-needed
+        if: steps.run-tests.outputs.has_failures == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, labels: ['status:fix-needed'],
+              });
+            } catch {}
+
+      - name: Fail on test failures
+        if: steps.run-tests.outputs.has_failures == 'true'
+        run: exit 1
+
+      - name: Fail on missing credentials
+        if: steps.run-tests.outputs.has_missing == 'true' && steps.run-tests.outputs.has_failures != 'true'
+        run: |
+          echo "Tests blocked by missing repository secrets — see PR comment."
+          exit 1

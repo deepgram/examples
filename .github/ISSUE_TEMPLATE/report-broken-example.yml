@@ -1,0 +1,49 @@
+name: "Report: Broken Example"
+description: Report that an existing example is failing or outdated
+labels: ["queue:fix-example", "type:fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The agent will investigate and fix this on its next run.
+
+  - type: input
+    id: example
+    attributes:
+      label: Which example?
+      description: The example directory name
+      placeholder: "e.g. examples/010-getting-started-node"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: failure_type
+    attributes:
+      label: Type of failure
+      options:
+        - Test failing in CI
+        - Outdated SDK version / deprecated API
+        - Documentation is wrong or unclear
+        - Code doesn't run locally
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's broken?
+      description: Describe what's failing and any error messages
+      placeholder: |
+        The test fails with:
+        ```
+        Error: Cannot find module '@deepgram/sdk'
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other relevant information (Node.js version, OS, etc.)

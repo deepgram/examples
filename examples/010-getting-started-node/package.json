@@ -1,0 +1,17 @@
+{
+  "name": "deepgram-getting-started-node",
+  "version": "1.0.0",
+  "description": "Transcribe audio from a URL using the Deepgram JavaScript SDK",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
+    "dotenv": "^16.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

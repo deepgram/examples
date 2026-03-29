@@ -1,0 +1,259 @@
+name: Test Existing Examples
+
+# Runs all examples on a schedule to catch regressions from SDK updates,
+# API changes, or broken dependencies — independent of any PR activity.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # Daily 06:00 UTC — before the business day
+  workflow_dispatch:
+
+concurrency:
+  group: test-existing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # ── Node.js ────────────────────────────────────────────────────────────────
+  node:
+    runs-on: ubuntu-latest
+    outputs:
+      has_failures: ${{ steps.test.outputs.has_failures }}
+      failed_examples: ${{ steps.test.outputs.failed_examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test Node.js examples
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          FAILED=""
+          for dir in examples/*/; do
+            [ ! -f "${dir}package.json" ] && continue
+            echo "Testing: $dir"
+            pushd "$dir" > /dev/null
+
+            if [ -f ".env.example" ]; then
+              MISSING=""
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR_NAME="${line%%=*}"; VAR_NAME="${VAR_NAME// /}"
+                [ -z "$VAR_NAME" ] && continue
+                [ -z "${!VAR_NAME+x}" ] || [ -z "${!VAR_NAME}" ] && MISSING="$MISSING $VAR_NAME"
+              done < ".env.example"
+              if [ -n "$MISSING" ]; then
+                echo "⚠ Skipping $dir — missing secrets: $MISSING"
+                popd > /dev/null; continue
+              fi
+            fi
+
+            if [ -f "package-lock.json" ]; then npm ci --prefer-offline 2>&1; else npm install 2>&1; fi
+            npm test 2>&1 || FAILED="$FAILED $dir"
+            popd > /dev/null
+          done
+
+          [ -n "$FAILED" ] && echo "has_failures=true" >> $GITHUB_OUTPUT \
+                           || echo "has_failures=false" >> $GITHUB_OUTPUT
+          echo "failed_examples=${FAILED}" >> $GITHUB_OUTPUT
+
+  # ── Python ─────────────────────────────────────────────────────────────────
+  python:
+    runs-on: ubuntu-latest
+    outputs:
+      has_failures: ${{ steps.test.outputs.has_failures }}
+      failed_examples: ${{ steps.test.outputs.failed_examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test Python examples
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          FAILED=""
+          for dir in examples/*/; do
+            HAS_PY=false
+            [ -f "${dir}requirements.txt" ] && HAS_PY=true
+            [ -f "${dir}pyproject.toml" ]   && HAS_PY=true
+            [ "$HAS_PY" = "false" ] && continue
+            echo "Testing: $dir"
+            pushd "$dir" > /dev/null
+
+            if [ -f ".env.example" ]; then
+              MISSING=""
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR_NAME="${line%%=*}"; VAR_NAME="${VAR_NAME// /}"
+                [ -z "$VAR_NAME" ] && continue
+                [ -z "${!VAR_NAME+x}" ] || [ -z "${!VAR_NAME}" ] && MISSING="$MISSING $VAR_NAME"
+              done < ".env.example"
+              if [ -n "$MISSING" ]; then
+                echo "⚠ Skipping $dir — missing secrets: $MISSING"
+                popd > /dev/null; continue
+              fi
+            fi
+
+            python -m pip install -q --upgrade pip
+            [ -f "requirements.txt" ] && pip install -q -r requirements.txt
+            [ -f "pyproject.toml" ]   && pip install -q -e .
+
+            TEST_RAN=false
+            if find tests/ -name "test_*.py" 2>/dev/null | grep -q .; then
+              pip install -q pytest
+              python -m pytest tests/ -v 2>&1 && TEST_RAN=true || { FAILED="$FAILED $dir"; TEST_RAN=true; }
+            fi
+            if [ "$TEST_RAN" = "false" ] && ls tests/*.py 2>/dev/null | head -1 | grep -q .; then
+              python "$(ls tests/*.py | head -1)" 2>&1 || FAILED="$FAILED $dir"
+            fi
+            popd > /dev/null
+          done
+
+          [ -n "$FAILED" ] && echo "has_failures=true" >> $GITHUB_OUTPUT \
+                           || echo "has_failures=false" >> $GITHUB_OUTPUT
+          echo "failed_examples=${FAILED}" >> $GITHUB_OUTPUT
+
+  # ── Go ─────────────────────────────────────────────────────────────────────
+  go:
+    runs-on: ubuntu-latest
+    outputs:
+      has_failures: ${{ steps.test.outputs.has_failures }}
+      failed_examples: ${{ steps.test.outputs.failed_examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Test Go examples
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          FAILED=""
+          for dir in examples/*/; do
+            [ ! -f "${dir}go.mod" ] && continue
+            echo "Testing: $dir"
+            pushd "$dir" > /dev/null
+
+            if [ -f ".env.example" ]; then
+              MISSING=""
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR_NAME="${line%%=*}"; VAR_NAME="${VAR_NAME// /}"
+                [ -z "$VAR_NAME" ] && continue
+                [ -z "${!VAR_NAME+x}" ] || [ -z "${!VAR_NAME}" ] && MISSING="$MISSING $VAR_NAME"
+              done < ".env.example"
+              if [ -n "$MISSING" ]; then
+                echo "⚠ Skipping $dir — missing secrets: $MISSING"
+                popd > /dev/null; continue
+              fi
+            fi
+
+            go mod download
+            go test ./... -v -timeout 60s 2>&1 || FAILED="$FAILED $dir"
+            popd > /dev/null
+          done
+
+          [ -n "$FAILED" ] && echo "has_failures=true" >> $GITHUB_OUTPUT \
+                           || echo "has_failures=false" >> $GITHUB_OUTPUT
+          echo "failed_examples=${FAILED}" >> $GITHUB_OUTPUT
+
+  # ── Report failures ─────────────────────────────────────────────────────────
+  report:
+    needs: [node, python, go]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect failures
+        id: collect
+        run: |
+          ALL_FAILED=""
+          [ "${{ needs.node.outputs.has_failures }}" = "true" ] && \
+            ALL_FAILED="$ALL_FAILED Node:[${{ needs.node.outputs.failed_examples }}]"
+          [ "${{ needs.python.outputs.has_failures }}" = "true" ] && \
+            ALL_FAILED="$ALL_FAILED Python:[${{ needs.python.outputs.failed_examples }}]"
+          [ "${{ needs.go.outputs.has_failures }}" = "true" ] && \
+            ALL_FAILED="$ALL_FAILED Go:[${{ needs.go.outputs.failed_examples }}]"
+
+          [ -n "$ALL_FAILED" ] && echo "has_failures=true" >> $GITHUB_OUTPUT \
+                               || echo "has_failures=false" >> $GITHUB_OUTPUT
+          echo "all_failed=${ALL_FAILED}" >> $GITHUB_OUTPUT
+
+      - name: Open issue for failures
+        if: steps.collect.outputs.has_failures == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          EXISTING=$(gh issue list --repo "$REPO" \
+            --label "queue:fix-example" \
+            --state open \
+            --search "Scheduled test failures ${TODAY}" \
+            --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING" ]; then
+            echo "Failure issue #$EXISTING already open — skipping duplicate"
+            exit 0
+          fi
+
+          gh issue create \
+            --repo "$REPO" \
+            --title "Scheduled test failures — ${TODAY}" \
+            --label "queue:fix-example,type:fix" \
+            --body "$(cat <<EOF
+## Scheduled test failures — ${TODAY}
+
+The daily test run found failures in the following examples:
+
+\`\`\`
+${{ steps.collect.outputs.all_failed }}
+\`\`\`
+
+The fix agent will investigate and repair these on its next run.
+
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+---
+*Opened automatically by test-existing workflow*
+EOF
+)"
+
+      - name: Run fix agent on failures
+        if: steps.collect.outputs.has_failures == 'true'
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          direct_prompt: |
+            The daily test run found failures in existing examples.
+            Failed examples: ${{ steps.collect.outputs.all_failed }}
+
+            For each failing example:
+            1. Read the example's source and tests
+            2. Check for common causes: outdated SDK version, deprecated API, dependency issue
+            3. Fix the issue
+            4. Create a branch, commit the fix, and open a PR:
+               - Branch: fix/{slug}-regression-{date}
+               - Label: type:fix
+               - Title: [Fix] {NNN}-{slug} — {brief description of fix}
+               - Enable auto-merge: gh pr merge {number} --auto --squash
+
+            Today's date: $(date -u +%Y-%m-%d)
+            Repository: ${{ github.repository }}

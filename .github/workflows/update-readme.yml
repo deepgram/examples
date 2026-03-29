@@ -1,0 +1,73 @@
+name: Update README
+
+# Rebuilds the examples table in README.md whenever a PR merges into main.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths:
+      - 'examples/**'
+
+concurrency:
+  group: update-readme
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  update:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "dx-examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Rebuild examples table
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          direct_prompt: |
+            Update the examples table in README.md to reflect the current state of the
+            examples/ directory.
+
+            Steps:
+            1. Read README.md
+            2. List all directories in examples/ (excluding .gitkeep)
+            3. For each example directory, read its README.md to extract:
+               - Title (first H1 heading)
+               - Language (from package.json/requirements.txt/go.mod presence)
+               - Products (from metadata block in README or PR label)
+               - Integration name (from directory slug or README)
+            4. Rebuild the table between the markers:
+               <!-- examples-table-start -->
+               | # | Example | Language | Products | Integration |
+               |---|---------|----------|----------|-------------|
+               | [010](examples/010-.../README.md) | Title | Node.js | STT | Twilio |
+               ...
+               <!-- examples-table-end -->
+            5. Commit and push directly to main:
+               git add README.md
+               git commit -m "docs(readme): update examples table after merge of PR #${{ github.event.pull_request.number }}"
+               git push origin main
+
+            Context:
+            - PR_NUMBER: ${{ github.event.pull_request.number }}
+            - Today's date: ${{ steps.date.outputs.date }}
+            - Repository: ${{ github.repository }}

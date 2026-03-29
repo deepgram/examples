@@ -1,0 +1,158 @@
+name: Test Go Examples
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'examples/**/*.go'
+      - 'examples/**/go.mod'
+      - 'examples/**/go.sum'
+
+concurrency:
+  group: test-go-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_go_examples: ${{ steps.detect.outputs.has_go_examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Go examples
+        id: detect
+        run: |
+          COUNT=0
+          for dir in examples/*/; do
+            [ -f "${dir}go.mod" ] && COUNT=$((COUNT + 1))
+          done
+          [ "$COUNT" -gt 0 ] && echo "has_go_examples=true" >> $GITHUB_OUTPUT \
+                              || echo "has_go_examples=false" >> $GITHUB_OUTPUT
+          echo "Found $COUNT Go example(s)"
+
+  test:
+    needs: detect
+    if: needs.detect.outputs.has_go_examples == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Run tests for all Go examples
+        id: run-tests
+        continue-on-error: true
+        run: |
+          FAILED_EXAMPLES=""
+          MISSING_CRED_EXAMPLES=""
+
+          for dir in examples/*/; do
+            [ ! -f "${dir}go.mod" ] && continue
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  Testing: $dir"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            pushd "$dir" > /dev/null
+
+            # ── Credential check ───────────────────────────────────
+            if [ -f ".env.example" ]; then
+              MISSING=""
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR_NAME="${line%%=*}"
+                VAR_NAME="${VAR_NAME// /}"
+                [ -z "$VAR_NAME" ] && continue
+                if [ -z "${!VAR_NAME+x}" ] || [ -z "${!VAR_NAME}" ]; then
+                  MISSING="$MISSING $VAR_NAME"
+                fi
+              done < ".env.example"
+
+              if [ -n "$MISSING" ]; then
+                TRIMMED=$(echo "$MISSING" | xargs | tr ' ' ',')
+                echo "⚠ MISSING_CREDENTIALS: $TRIMMED"
+                MISSING_CRED_EXAMPLES="${MISSING_CRED_EXAMPLES}${dir}:${TRIMMED}|"
+                popd > /dev/null
+                continue
+              fi
+            fi
+            # ──────────────────────────────────────────────────────
+
+            go mod download
+            if go test ./... -v -timeout 60s 2>&1; then
+              echo "✓ PASSED: $dir"
+            else
+              echo "✗ FAILED: $dir"
+              FAILED_EXAMPLES="$FAILED_EXAMPLES $dir"
+            fi
+
+            popd > /dev/null
+          done
+
+          echo "failed_examples=${FAILED_EXAMPLES}" >> $GITHUB_OUTPUT
+          echo "missing_credentials=${MISSING_CRED_EXAMPLES}" >> $GITHUB_OUTPUT
+          [ -n "$FAILED_EXAMPLES" ]        && echo "has_failures=true"  >> $GITHUB_OUTPUT \
+                                           || echo "has_failures=false" >> $GITHUB_OUTPUT
+          [ -n "$MISSING_CRED_EXAMPLES" ]  && echo "has_missing=true"   >> $GITHUB_OUTPUT \
+                                           || echo "has_missing=false"  >> $GITHUB_OUTPUT
+
+      - name: Post missing-credentials comment
+        if: steps.run-tests.outputs.has_missing == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missingRaw = '${{ steps.run-tests.outputs.missing_credentials }}';
+            const entries = missingRaw.split('|').filter(Boolean);
+            const lines = entries.map(e => {
+              const [dir, vars] = e.split(':');
+              const varList = vars.split(',').map(v => `\`${v.trim()}\``).join(', ');
+              return `**\`${dir}\`** requires: ${varList}`;
+            }).join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Missing credentials — E2E tests cannot run',
+                '', lines, '',
+                '@deepgram-devrel — please add these as [repository secrets](../../settings/secrets/actions).',
+                '', '_Tests retry automatically once secrets are configured._'
+              ].join('\n'),
+            });
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, labels: ['status:needs-credentials'],
+              });
+            } catch {}
+
+      - name: Label as fix-needed
+        if: steps.run-tests.outputs.has_failures == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, labels: ['status:fix-needed'],
+              });
+            } catch {}
+
+      - name: Fail on test failures
+        if: steps.run-tests.outputs.has_failures == 'true'
+        run: exit 1
+
+      - name: Fail on missing credentials
+        if: steps.run-tests.outputs.has_missing == 'true' && steps.run-tests.outputs.has_failures != 'true'
+        run: |
+          echo "Tests blocked by missing repository secrets — see PR comment."
+          exit 1
