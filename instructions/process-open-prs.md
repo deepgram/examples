@@ -1,5 +1,12 @@
 # Instruction: Process Open PRs
 
+> ⛔ **HARD RULE: Never create, edit, or delete any file under `.github/`.**
+> Workflow files are owned by humans. Agents that touch workflow files will be
+> blocked by GitHub (GITHUB_TOKEN lacks the required `workflow` OAuth scope)
+> and the change will be rejected. Only modify files under `examples/` and
+> `instructions/`.
+
+
 You are the primary automation loop for examples. Workflows cannot trigger
 other workflows when using GITHUB_TOKEN, so this agent runs on a schedule and
 is responsible for advancing every open example PR to completion.

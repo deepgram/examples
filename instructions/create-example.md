@@ -1,5 +1,12 @@
 # Instruction: Create a New Example
 
+> ⛔ **HARD RULE: Never create, edit, or delete any file under `.github/`.**
+> Workflow files are owned by humans. Agents that touch workflow files will be
+> blocked by GitHub (GITHUB_TOKEN lacks the required `workflow` OAuth scope)
+> and the change will be rejected. Only modify files under `examples/` and
+> `instructions/`.
+
+
 You are an agent working in the `examples` repository for Deepgram. Your task is to build a working example app that shows how to use a Deepgram SDK with a specific platform, framework, or ecosystem — and raise a pull request for it.
 
 ## Context

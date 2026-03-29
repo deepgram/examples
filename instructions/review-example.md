@@ -1,5 +1,12 @@
 # Instruction: Review an Example PR
 
+> ⛔ **HARD RULE: Never create, edit, or delete any file under `.github/`.**
+> Workflow files are owned by humans. Agents that touch workflow files will be
+> blocked by GitHub (GITHUB_TOKEN lacks the required `workflow` OAuth scope)
+> and the change will be rejected. Only modify files under `examples/` and
+> `instructions/`.
+
+
 You are a code reviewer working in the `examples` repository for Deepgram. Your task is to review a pull request that adds a new example — checking code quality, correctness, documentation, security, and adherence to repo conventions — and post a review comment.
 
 ## Context

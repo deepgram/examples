@@ -1,5 +1,12 @@
 # Kapa Search — Deepgram Documentation Retrieval
 
+> ⛔ **HARD RULE: Never create, edit, or delete any file under `.github/`.**
+> Workflow files are owned by humans. Agents that touch workflow files will be
+> blocked by GitHub (GITHUB_TOKEN lacks the required `workflow` OAuth scope)
+> and the change will be rejected. Only modify files under `examples/` and
+> `instructions/`.
+
+
 Kapa is Deepgram's semantic documentation search. Use it to retrieve accurate,
 up-to-date information about Deepgram APIs, SDKs, and features before writing
 any code. It returns ranked source chunks from the live Deepgram docs — the

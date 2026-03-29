@@ -1,5 +1,12 @@
 # Instruction: Discover New Example Opportunities
 
+> ⛔ **HARD RULE: Never create, edit, or delete any file under `.github/`.**
+> Workflow files are owned by humans. Agents that touch workflow files will be
+> blocked by GitHub (GITHUB_TOKEN lacks the required `workflow` OAuth scope)
+> and the change will be rejected. Only modify files under `examples/` and
+> `instructions/`.
+
+
 You are an agent working in the `examples` repository for Deepgram. Your task is to find platforms, frameworks, and ecosystems that would benefit from a Deepgram integration example — and raise a PR for each new one you decide to build, or create queue issues for ideas you want to defer.
 
 ## Context
