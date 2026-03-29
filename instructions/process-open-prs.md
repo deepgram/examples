@@ -9,7 +9,10 @@ For each open PR you will: fix failures and review passing PRs.
 **You do not merge PRs.** Merging is handled by a native shell step in the
 workflow after you finish. Do not call `gh pr merge` under any circumstances.
 
-_The following is legacy context:
+**Test gate:** `test-pr-example.yml` is the required status check. A PR can only
+merge when that check passes. Phase 1 in this workflow runs the equivalent test
+natively. Only proceed to review a PR if its tests actually passed — not just
+"no failures found" but a real passing test run.
 
 ## Step 1 — Find open PRs to process
 
