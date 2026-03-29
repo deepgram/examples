@@ -33,18 +33,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
       - name: Detect Python examples
         id: detect
         run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DIRS=$(git diff origin/main...HEAD --name-only 2>/dev/null \
+              | grep '^examples/' | cut -d/ -f1-2 | sort -u)
+          else
+            DIRS=$(ls -d examples/*/ 2>/dev/null | sed 's|/$||')
+          fi
           COUNT=0
-          for dir in examples/*/; do
-            if [ -f "${dir}requirements.txt" ] || [ -f "${dir}pyproject.toml" ] || [ -f "${dir}requirements-dev.txt" ]; then
+          for dir in $DIRS; do
+            if [ -f "${dir}/requirements.txt" ] || [ -f "${dir}/pyproject.toml" ]; then
               COUNT=$((COUNT + 1))
             fi
           done
           [ "$COUNT" -gt 0 ] && echo "has_python_examples=true" >> $GITHUB_OUTPUT \
                               || echo "has_python_examples=false" >> $GITHUB_OUTPUT
-          echo "Found $COUNT Python example(s)"
+          echo "Found $COUNT Python example(s) to test"
 
   test:
     needs: detect
@@ -54,11 +61,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Run tests for all Python examples
         id: run-tests
@@ -69,7 +76,15 @@ jobs:
           FAILED_EXAMPLES=""
           MISSING_CRED_EXAMPLES=""
 
-          for dir in examples/*/; do
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DIRS=$(git diff origin/main...HEAD --name-only 2>/dev/null \
+              | grep '^examples/' | cut -d/ -f1-2 | sort -u)
+          else
+            DIRS=$(ls -d examples/*/ 2>/dev/null | sed 's|/$||')
+          fi
+
+          for dir in $DIRS; do
+            dir="${dir}/" do
             HAS_PYTHON=false
             [ -f "${dir}requirements.txt" ] && HAS_PYTHON=true
             [ -f "${dir}pyproject.toml" ]   && HAS_PYTHON=true
