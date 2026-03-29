@@ -54,10 +54,7 @@ function createApp() {
 
     console.log('[media] Twilio WebSocket connected');
 
-    const socket = await deepgram.listen.v1.connect({
-      ...DEEPGRAM_LIVE_OPTIONS,
-      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-    });
+    const socket = await deepgram.listen.v1.connect(DEEPGRAM_LIVE_OPTIONS);
     dgConnection = socket;
 
     dgConnection.on('open', () => {
@@ -101,17 +98,20 @@ function createApp() {
             break;
 
           case 'media':
-            if (dgConnection) {
-              const audio = Buffer.from(message.media.payload, 'base64');
-              dgConnection.sendMedia(audio);
-            }
+            try {
+              if (dgConnection) {
+                const audio = Buffer.from(message.media.payload, 'base64');
+                dgConnection.sendMedia(audio);
+              }
+            } catch {}
+
             break;
 
           case 'stop':
             console.log('[twilio] Stream stopped');
             if (dgConnection) {
-              dgConnection.sendCloseStream({ type: 'CloseStream' });
-              dgConnection.close();
+              try { dgConnection.sendCloseStream({ type: 'CloseStream' }); } catch {}
+              try { dgConnection.close(); } catch {}
               dgConnection = null;
             }
             break;
@@ -127,8 +127,8 @@ function createApp() {
     twilioWs.on('close', () => {
       console.log('[media] Twilio WebSocket closed');
       if (dgConnection) {
-        dgConnection.sendCloseStream({ type: 'CloseStream' });
-        dgConnection.close();
+        try { dgConnection.sendCloseStream({ type: 'CloseStream' }); } catch {}
+        try { dgConnection.close(); } catch {}
         dgConnection = null;
       }
     });
@@ -136,7 +136,7 @@ function createApp() {
     twilioWs.on('error', (err) => {
       console.error('[media] Twilio WebSocket error:', err.message);
       if (dgConnection) {
-        dgConnection.close();
+        try { dgConnection.close(); } catch {}
         dgConnection = null;
       }
     });
