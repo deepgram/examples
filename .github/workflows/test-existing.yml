@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   issues: write
 
 jobs:
@@ -171,12 +172,25 @@ jobs:
                            || echo "has_failures=false" >> $GITHUB_OUTPUT
           echo "failed_examples=${FAILED}" >> $GITHUB_OUTPUT
 
-  # ── Report failures ─────────────────────────────────────────────────────────
+  # ── Report failures + fix ───────────────────────────────────────────────────
   report:
     needs: [node, python, go]
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "dx-examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
       - name: Collect failures
         id: collect
         run: |
@@ -192,13 +206,13 @@ jobs:
                                || echo "has_failures=false" >> $GITHUB_OUTPUT
           echo "all_failed=${ALL_FAILED}" >> $GITHUB_OUTPUT
 
-      - name: Open issue for failures
+      - name: Open tracking issue
         if: steps.collect.outputs.has_failures == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          TODAY=$(date -u +%Y-%m-%d)
+          TODAY=${{ steps.date.outputs.date }}
           EXISTING=$(gh issue list --repo "$REPO" \
             --label "queue:fix-example" \
             --state open \
@@ -213,26 +227,21 @@ jobs:
           gh issue create \
             --repo "$REPO" \
             --title "Scheduled test failures — ${TODAY}" \
-            --label "queue:fix-example,type:fix" \
-            --body "$(cat <<EOF
-## Scheduled test failures — ${TODAY}
+            --label "queue:fix-example" \
+            --label "type:fix" \
+            --body "$(cat <<'BODY'
+## Scheduled test failures
 
-The daily test run found failures in the following examples:
-
-\`\`\`
-${{ steps.collect.outputs.all_failed }}
-\`\`\`
-
-The fix agent will investigate and repair these on its next run.
+The scheduled test run found failures. The fix agent is investigating now.
 
 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 ---
 *Opened automatically by test-existing workflow*
-EOF
+BODY
 )"
 
-      - name: Run fix agent on failures
+      - name: Run fix agent
         if: steps.collect.outputs.has_failures == 'true'
         uses: anthropics/claude-code-action@beta
         env:
@@ -245,18 +254,19 @@ EOF
           model: claude-opus-4-6
           allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
           direct_prompt: |
-            The daily test run found failures in existing examples.
+            The scheduled test run found regressions in existing merged examples.
             Failed examples: ${{ steps.collect.outputs.all_failed }}
 
             For each failing example:
             1. Read the example's source and tests
-            2. Check for common causes: outdated SDK version, deprecated API, dependency issue
-            3. Fix the issue
-            4. Create a branch, commit the fix, and open a PR:
-               - Branch: fix/{slug}-regression-{date}
+            2. Search Kapa for current correct SDK usage (instructions/kapa-search.md)
+            3. Identify the root cause (outdated SDK, deprecated API, dependency change)
+            4. Fix the code
+            5. Create a branch and PR:
+               - Branch: fix/{slug}-regression-${{ steps.date.outputs.date }}
                - Label: type:fix
-               - Title: [Fix] {NNN}-{slug} — {brief description of fix}
-               - Enable auto-merge: gh pr merge {number} --auto --squash
+               - Title: [Fix] {NNN}-{slug} — {brief description}
+               - Do NOT enable auto-merge — process-open-prs.yml handles merge after tests pass
 
-            Today's date: $(date -u +%Y-%m-%d)
+            Today's date: ${{ steps.date.outputs.date }}
             Repository: ${{ github.repository }}
