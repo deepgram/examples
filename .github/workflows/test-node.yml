@@ -201,7 +201,7 @@ jobs:
           exit 1
 
       - name: Fail on missing credentials
-        if: steps.run-tests.outputs.has_missing == 'true' && steps.run-tests.outputs.has_failures != 'true'
+        if: steps.run-tests.outputs.has_missing == 'true' && steps.run-tests.outputs.has_failures != 'true' && github.event_name == 'pull_request'
         run: |
           echo "Tests blocked by missing repository secrets — see PR comment for details."
           exit 1
