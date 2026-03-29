@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   test:
-    name: Test changed example
+    name: e2e-api-check
     runs-on: ubuntu-latest
     steps:
       - name: Resolve PR ref

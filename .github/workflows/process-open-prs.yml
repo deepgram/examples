@@ -215,7 +215,7 @@ jobs:
               gh api "repos/${{ github.repository }}/statuses/$SHA" \
                 --method POST \
                 -f state="$STATE" \
-                -f context="test-pr-example" \
+                -f context="e2e-api-check" \
                 -f description="$DESC" \
                 -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
                 2>/dev/null || true
