@@ -69,11 +69,23 @@ Parse `<!-- metadata ... -->` blocks to get `slug`, `language`, `products`. If n
 
 ## Step 2 — Find the next example number
 
+Must account for both merged examples AND open PRs — two agents running
+concurrently would otherwise claim the same number.
+
 ```bash
-LAST=$(ls examples/ | grep -E '^[0-9]' | sort -n | tail -1 | grep -oE '^[0-9]+')
+# Highest number already in examples/
+LAST_MERGED=$(ls examples/ | grep -E '^[0-9]' | sort -n | tail -1 | grep -oE '^[0-9]+')
+
+# Highest number claimed by any open PR (parse from PR titles "[Example] NNN — ...")
+LAST_PR=$(gh pr list --state open --json title \
+  --jq '.[].title | capture("^\\[(?:Example|Fix)\\] (?P<n>[0-9]+)") | .n' \
+  2>/dev/null | sort -n | tail -1)
+
+# Take the max of both, then add 10
+LAST=$(printf '%s\n' "${LAST_MERGED:-0}" "${LAST_PR:-0}" | sort -n | tail -1)
 NEXT=$(( ${LAST:-0} + 10 ))
 PADDED=$(printf "%03d" $NEXT)
-echo "Next number: $PADDED"
+echo "Next number: $PADDED (merged high: ${LAST_MERGED:-none}, PR high: ${LAST_PR:-none})"
 ```
 
 ## Step 3 — Research the integration

@@ -209,8 +209,14 @@ When multiple options are roughly equal, favour the one with the most developers
 
 ## Step 4 — Find the next example number
 
+Check both merged examples and open PRs so concurrent agents don't claim the same number.
+
 ```bash
-LAST=$(ls examples/ | grep -E '^[0-9]' | sort -n | tail -1 | grep -oE '^[0-9]+')
+LAST_MERGED=$(ls examples/ | grep -E '^[0-9]' | sort -n | tail -1 | grep -oE '^[0-9]+')
+LAST_PR=$(gh pr list --state open --json title \
+  --jq '.[].title | capture("^\\[(?:Example|Fix)\\] (?P<n>[0-9]+)") | .n' \
+  2>/dev/null | sort -n | tail -1)
+LAST=$(printf '%s\n' "${LAST_MERGED:-0}" "${LAST_PR:-0}" | sort -n | tail -1)
 NEXT=$(( ${LAST:-0} + 10 ))
 printf "%03d" $NEXT
 ```
