@@ -215,36 +215,25 @@ jobs:
         if: steps.collect.outputs.has_failures == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
         run: |
           TODAY=${{ steps.date.outputs.date }}
-          EXISTING=$(gh issue list --repo "$REPO" \
-            --label "queue:fix-example" \
-            --state open \
+          EXISTING=$(gh issue list --repo ${{ github.repository }} \
+            --label "queue:fix-example" --state open \
             --search "Scheduled test failures ${TODAY}" \
             --json number --jq '.[0].number')
 
           if [ -n "$EXISTING" ]; then
-            echo "Failure issue #$EXISTING already open — skipping duplicate"
+            echo "Failure issue #$EXISTING already open — skipping"
             exit 0
           fi
 
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           gh issue create \
-            --repo "$REPO" \
+            --repo ${{ github.repository }} \
             --title "Scheduled test failures — ${TODAY}" \
             --label "queue:fix-example" \
             --label "type:fix" \
-            --body "$(cat <<'BODY'
-## Scheduled test failures
-
-The scheduled test run found failures. The fix agent is investigating now.
-
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
----
-*Opened automatically by test-existing workflow*
-BODY
-)"
+            --body "Scheduled test failures on ${TODAY}. Fix agent investigating. Run: ${RUN_URL}"
 
       - name: Run fix agent
         if: steps.collect.outputs.has_failures == 'true'
