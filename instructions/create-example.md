@@ -354,6 +354,17 @@ export DEEPGRAM_API_KEY=your_key_here
 bash transcribe.sh recording.mp3
 ```
 
+## Key parameters
+
+{Table of the most important Deepgram parameters this example uses.
+Borrowing from deepgram/recipes convention — helps developers understand
+what to change without reading the full code.}
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `model` | `nova-3` | {what this controls} |
+| `{param}` | `{value}` | {description} |
+
 ## How it works
 
 {Step-by-step explanation of the key code — what happens when you run it?}
