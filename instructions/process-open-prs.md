@@ -70,7 +70,36 @@ Look at `statusCheckRollup` from Step 2.
 
 ### D. `status:fix-needed` label → run fix agent regardless of check state
 
-### E. `status:review-passed` label AND all checks pass → merge (Step 7)
+### E. Tests pass + review done → merge (Step 7)
+
+Only proceed to merge if ALL of the following are true:
+- `status:review-passed` label is present
+- `status:fix-needed` label is NOT present
+- `status:needs-credentials` label is NOT present
+- At least one CI check has concluded (not empty, not all pending)
+- Every concluded check has conclusion `SUCCESS` — no `FAILURE`, `CANCELLED`, or `SKIPPED`
+
+```bash
+CHECKS=$(gh pr view $PR_NUMBER --json statusCheckRollup --jq '.statusCheckRollup')
+
+# Must have at least one check that completed
+CONCLUDED=$(echo "$CHECKS" | jq '[.[] | select(.conclusion != null and .conclusion != "")] | length')
+# Every concluded check must be SUCCESS
+FAILURES=$(echo "$CHECKS" | jq '[.[] | select(.conclusion != null and .conclusion != "SUCCESS")] | length')
+# Nothing still pending
+PENDING=$(echo "$CHECKS" | jq '[.[] | select(.conclusion == null or .conclusion == "")] | length')
+
+if [ "$CONCLUDED" -eq 0 ]; then
+  echo "No tests have run yet — skip merge, run tests first (Step 4)"
+elif [ "$FAILURES" -gt 0 ]; then
+  echo "$(echo "$CHECKS" | jq -r '.[] | select(.conclusion != "SUCCESS") | .name + ": " + .conclusion') — do not merge"
+elif [ "$PENDING" -gt 0 ]; then
+  echo "Tests still running — skip merge for now"
+else
+  echo "All $CONCLUDED checks passed — safe to merge"
+  # proceed to Step 7
+fi
+```
 
 ## Step 4 — Run tests manually
 
@@ -184,22 +213,25 @@ looks good, or `status:fix-needed` if there are issues.
 
 ## Step 7 — Merge
 
-If all checks pass and `status:review-passed` label is present:
+Only reach this step after confirming all conditions in Step 3E are met.
+Do not merge if any check failed, is pending, or no checks ran at all.
 
 ```bash
-# Remove working labels before merging
-gh pr edit $PR_NUMBER --remove-label "status:review-passed" 2>/dev/null || true
+# Final safety check — re-read current check state immediately before merging
+CHECKS=$(gh pr view $PR_NUMBER --json statusCheckRollup --jq '.statusCheckRollup')
+CONCLUDED=$(echo "$CHECKS" | jq '[.[] | select(.conclusion != null and .conclusion != "")] | length')
+FAILURES=$(echo "$CHECKS" | jq '[.[] | select(.conclusion != null and .conclusion != "SUCCESS")] | length')
+PENDING=$(echo "$CHECKS" | jq '[.[] | select(.conclusion == null or .conclusion == "")] | length')
 
-# Merge
+if [ "$CONCLUDED" -eq 0 ] || [ "$FAILURES" -gt 0 ] || [ "$PENDING" -gt 0 ]; then
+  echo "Merge blocked: concluded=$CONCLUDED failures=$FAILURES pending=$PENDING"
+  exit 0   # skip merge, do not error — revisit next cron run
+fi
+
+# All checks passed — safe to merge
+gh pr edit $PR_NUMBER --remove-label "status:review-passed" 2>/dev/null || true
 gh pr merge $PR_NUMBER --squash --delete-branch
 echo "Merged PR #$PR_NUMBER"
-```
-
-If auto-merge is already set (from `gh pr merge --auto` at creation time), GitHub will
-merge automatically and you can skip this step:
-```bash
-MERGE_STATE=$(gh pr view $PR_NUMBER --json mergeStateStatus --jq '.mergeStateStatus')
-[ "$MERGE_STATE" = "BEHIND" ] && gh pr update-branch $PR_NUMBER 2>/dev/null || true
 ```
 
 ## Step 7b — Rebuild README after any merges
@@ -241,8 +273,15 @@ echo "|----|---------|---------| " >> $GITHUB_STEP_SUMMARY
 ## Rules
 
 - Process PRs in order of oldest first (most waiting)
-- Never merge a PR with failing checks
-- Never merge a PR with `status:needs-credentials` label
+- **Never merge unless ALL of these are true:**
+  - At least one CI check has concluded
+  - Every concluded check is `SUCCESS`
+  - No checks are still pending
+  - `status:review-passed` label is present
+  - `status:fix-needed` is NOT present
+  - `status:needs-credentials` is NOT present
+- If `statusCheckRollup` is empty, do not merge — run the tests first
+- Never skip the final check re-read in Step 7 (state can change during the run)
 - Maximum 3 fix attempts per PR per run
 - If a PR can't be advanced (stuck waiting for human), leave it and move on
 - Do not process more than 10 PRs per run (to keep runtime reasonable)

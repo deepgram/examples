@@ -568,11 +568,15 @@ integrations: {integration-slug}
 EOF
 )")
 
-# Enable auto-merge — will activate once all checks pass
 PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-gh pr merge "$PR_NUMBER" --auto --squash
+
+# Do NOT enable auto-merge here. process-open-prs.yml is the merge gatekeeper.
+# It merges only after verifying: at least one test ran, all checks are SUCCESS,
+# and status:review-passed is present. GitHub's --auto would merge on approval
+# alone, bypassing that test-result requirement.
 
 echo "PR created: $PR_URL"
+echo "Merge will happen via process-open-prs.yml once tests pass and review completes."
 ```
 
 ## Step 10 — Close queue issue (if applicable)
