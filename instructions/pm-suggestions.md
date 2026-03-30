@@ -136,11 +136,27 @@ Requested in #{number}: {brief quote from original issue}
 {Any links from the original issue, or blank}
 
 ---
-*Queued by PM from #${number} on {date}*
+*Queued by PM from #{number} on {date}*
 EOF
 )"
 
-gh issue close {number} --comment "Queued as a new example. Tracking in #{new_issue_number}."
+# Get the new queue issue number
+NEW_ISSUE=$(gh issue list --repo ${{ github.repository }} \
+  --label "queue:new-example" --state open --limit 1 \
+  --json number --jq '.[0].number' 2>/dev/null)
+
+# Close the original suggestion with a friendly message
+# Note: use "closes #{PR_NUMBER}" in the PR body later so GitHub auto-closes
+# the original issue when the example PR merges — completing the full loop
+gh issue comment {number} --body "Thanks for the suggestion! 🎉
+
+I've queued this for the team. The Engineer will build the example and open a PR.
+I'll update this issue and close it when the example is released.
+
+Tracking: #{NEW_ISSUE}"
+
+# Don't close yet — leave it open so the contributor can track progress.
+# The PR body will include 'Closes #{number}' so GitHub closes it on merge.
 ```
 
 ---
