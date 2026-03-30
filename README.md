@@ -1,22 +1,8 @@
 # examples
 
-Agent-maintained examples showing how to use Deepgram SDKs with popular platforms, frameworks, and ecosystems.
-
-**All examples are built and maintained by autonomous agents.** Humans can direct, override, and add examples at any time.
+A collection of working examples showing how to use Deepgram SDKs with popular platforms, frameworks, and ecosystems.
 
 [→ Contributing](CONTRIBUTING.md) · [→ Open PRs](../../pulls) · [→ Suggest an example](../../issues/new/choose)
-
-## How it works
-
-1. **PM** — Discovers new integration opportunities weekly; accepts freeform suggestions from any GitHub issue
-2. **Researcher** — Gathers platform SDK docs and credential requirements before building starts
-3. **Engineer** — Builds the full integration (src/, tests/, .env.example, README) and opens a PR
-4. **Lead — E2E** — Runs a real Deepgram API smoke test on every PR (STT + TTS)
-5. **Lead — Review** — Checks code quality and verifies the integration is genuine (real SDK calls, not mocked)
-6. **Lead — Fix** — If tests fail, investigates and repairs; retries up to 3 times before escalating
-7. **Merge** — Once E2E passes and review is approved, the PR squash-merges automatically
-
-PRs requiring partner credentials stay open with a `⏸` comment until secrets are configured. Every merged example has passed a real Deepgram API call.
 
 ## Examples
 
@@ -40,7 +26,23 @@ PRs requiring partner credentials stay open with a `⏸` comment until secrets a
 | [150](examples/150-flutter-voice-transcription-dart/) | Flutter Voice Transcription | Dart | Flutter | ✅ passing |
 <!-- examples-table-end -->
 
-*Status verified by manual CI run on 2026-03-30.*
+*Status last updated 2026-03-30.*
+
+## CI / testing
+
+Every PR that touches `examples/**` runs language-specific test jobs automatically. The `e2e-api-check` status check is required before merge.
+
+| Language | Marker file |
+|----------|-------------|
+| Node.js / TypeScript | `package.json` |
+| Python | `requirements.txt` or `pyproject.toml` |
+| Go | `go.mod` |
+| Java | `pom.xml` or `build.gradle` |
+| Rust | `Cargo.toml` |
+| .NET | `*.csproj` or `*.sln` |
+| CLI | `example.sh` or `src/*.sh` |
+
+All examples are also tested on a recurring schedule to catch regressions from SDK updates or API changes.
 
 ## Directory structure
 
@@ -52,46 +54,25 @@ examples/
     src/                  # Source code
     tests/                # Tests — exit 0=pass, 1=fail, 2=missing credentials
 
-instructions/             # Agent prompts — edit these to change agent behaviour
-  pm.md                   # PM: discover integration opportunities
-  pm-dashboard.md         # PM: rebuild README status table
-  pm-suggestions.md       # PM: route any freeform issue
-  researcher.md           # Researcher: gather platform context before building
-  engineer.md             # Engineer: build examples
-  lead-review.md          # Lead: review PRs + genuine integration check
-  lead-fix.md             # Lead: fix failing tests
-
 tests/
   e2e.py                  # Deepgram STT + TTS smoke test (runs on every PR)
 
 .github/
-  workflows/              # CI and agent workflows
-  ISSUE_TEMPLATE/         # Single freeform suggestion template
-  CODEOWNERS              # Protects .github/ from agent modification
+  workflows/              # CI workflows
+  ISSUE_TEMPLATE/         # Issue templates
 ```
 
 ## Numbering convention
 
 Examples are numbered globally in increments of 10: `010`, `020`, `030` … A platform owns its group — a second Twilio example would be `021`, not a new slot. New platforms claim the next free multiple of 10.
 
-## Language support
-
-| Language | Test workflow | Marker file |
-|----------|--------------|-------------|
-| Node.js / TypeScript | `test-node.yml` | `package.json` |
-| Python | `test-python.yml` | `requirements.txt` or `pyproject.toml` |
-| Go | `test-go.yml` | `go.mod` |
-| Java | `test-java.yml` | `pom.xml` or `build.gradle` |
-
 ## Setup
 
-1. Add `ANTHROPIC_API_KEY` as a repository secret — required for all agent workflows
-2. Add `DEEPGRAM_API_KEY` as a repository secret — required for E2E tests
-3. Add partner credentials as needed (each example's `.env.example` lists them)
-4. Enable **auto-merge** in repository Settings → General → Pull Requests
+1. Add `DEEPGRAM_API_KEY` as a repository secret — required for E2E tests
+2. Add partner credentials as needed (each example's `.env.example` lists them)
 
 `GITHUB_TOKEN` is provided automatically by GitHub Actions.
 
-## Suggesting an example
+## Contributing
 
-Open any GitHub issue and write whatever you like — the PM agent reads it, figures out what you mean, and routes it. No template or label required.
+Open an issue to suggest a new example, or submit a PR directly. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
