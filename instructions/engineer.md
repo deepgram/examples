@@ -239,6 +239,15 @@ git add "examples/${NEXT}-${SLUG}/"
 git commit -m "feat(examples): add ${NEXT} — {description}"
 git push origin "$BRANCH"
 
+# Check if the queue issue has an origin issue to close when this PR merges.
+# The PM sets "Requested in #{N}" in the queue issue body for external suggestions.
+ORIGIN_ISSUE=""
+QUEUE_BODY=$(gh issue view {issue_number} --json body --jq '.body' 2>/dev/null || echo "")
+ORIGIN_NUM=$(echo "$QUEUE_BODY" | grep -oE 'Requested in #([0-9]+)' | grep -oE '[0-9]+' | head -1)
+if [ -n "$ORIGIN_NUM" ]; then
+  ORIGIN_ISSUE="Closes #${ORIGIN_NUM}"
+fi
+
 PR_URL=$(gh pr create \
   --title "[Example] ${NEXT} — {Title}" \
   --label "type:example,language:{lang},integration:{slug}" \
@@ -262,6 +271,8 @@ integrations: {integration-slug}
 
 ### Required secrets
 {vars beyond DEEPGRAM_API_KEY, or "None — only DEEPGRAM_API_KEY required"}
+
+${ORIGIN_ISSUE}
 
 ---
 *Built by Engineer on {date}*

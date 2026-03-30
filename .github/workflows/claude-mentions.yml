@@ -1,0 +1,123 @@
+name: Claude — Respond to @mentions
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  respond:
+    # Only fire when the comment mentions @claude
+    if: contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Check write permission
+        id: membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          USERNAME="${{ github.event.comment.user.login }}"
+          # Skip bots
+          if [[ "$USERNAME" == *"[bot]"* ]] || [[ "$USERNAME" == "github-actions" ]]; then
+            echo "is_member=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Check collaborator permission level — must be write, maintain, or admin
+          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${USERNAME}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+          echo "Permission for $USERNAME: $PERM"
+          if [[ "$PERM" == "write" || "$PERM" == "maintain" || "$PERM" == "admin" ]]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+            echo "$USERNAME has $PERM access — allowing"
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+            echo "$USERNAME has $PERM access — skipping (need write+)"
+          fi
+
+      - name: Get context
+        id: ctx
+        if: steps.membership.outputs.is_member == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Resolve PR/issue number from the comment URL
+          # issue_comment.issue_url works for both issues and PRs
+          ISSUE_NUM=$(echo "${{ github.event.issue.number }}" | tr -d '"')
+          echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+
+          # Is this on a PR?
+          PR_DATA=$(gh pr view "$ISSUE_NUM" --repo ${{ github.repository }} \
+            --json number,headRefName 2>/dev/null || echo "")
+          if [ -n "$PR_DATA" ]; then
+            BRANCH=$(echo "$PR_DATA" | jq -r '.headRefName')
+            echo "is_pr=true" >> $GITHUB_OUTPUT
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            git fetch origin "$BRANCH" 2>/dev/null || true
+            git checkout "$BRANCH" 2>/dev/null || true
+          else
+            echo "is_pr=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Respond
+        if: steps.membership.outputs.is_member == 'true'
+        uses: anthropics/claude-code-action@beta
+        env:
+          KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
+          KAPA_PROJECT_ID: ${{ vars.KAPA_PROJECT_ID }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          timeout_minutes: 20
+          direct_prompt: |
+            A Deepgram org member has mentioned @claude in a comment on GitHub.
+
+            **Comment from @${{ github.event.comment.user.login }}:**
+            ${{ github.event.comment.body }}
+
+            **Context:**
+            - Issue/PR number: ${{ steps.ctx.outputs.issue_number }}
+            - Is a PR: ${{ steps.ctx.outputs.is_pr }}
+            - Branch: ${{ steps.ctx.outputs.branch }}
+            - Repository: ${{ github.repository }}
+            - Comment URL: ${{ github.event.comment.html_url }}
+
+            Your job is to act on the request in the comment. Read the relevant code,
+            make any requested changes, and reply with a comment explaining what you did
+            (or why you can't do it).
+
+            If the request involves editing files:
+            - Make the changes
+            - Commit them to the PR branch
+            - Reply with a summary
+
+            If the request is a question:
+            - Answer it directly in a comment
+
+            Always post a reply comment to close the loop:
+            ```bash
+            gh pr comment ${{ steps.ctx.outputs.issue_number }} \
+              --repo ${{ github.repository }} \
+              --body "your response here"
+            ```
+
+            ⛔ Never modify files under .github/
