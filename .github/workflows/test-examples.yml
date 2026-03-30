@@ -25,9 +25,13 @@ on:
         description: 'Branch or SHA to test (default: main)'
         required: false
         default: 'main'
+      example:
+        description: 'Single example dir to test (e.g. examples/020-twilio-media-streams-node). Leave blank to test all.'
+        required: false
+        default: ''
 
 concurrency:
-  group: test-examples-${{ github.event.pull_request.number || inputs.ref }}
+  group: test-examples-${{ github.event.pull_request.number || inputs.ref }}-${{ inputs.example || 'all' }}
   cancel-in-progress: true
 
 permissions:
@@ -66,10 +70,12 @@ jobs:
       - name: Scan changed example directories
         id: scan
         run: |
-          # On PR: only dirs changed in this PR. On dispatch: all example dirs.
+          # On PR: only dirs changed in this PR. On dispatch: all dirs, or a single example if specified.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             DIRS=$(git diff origin/main...HEAD --name-only 2>/dev/null \
               | grep '^examples/' | cut -d/ -f1-2 | sort -u | grep -v '^\s*$')
+          elif [ -n "${{ inputs.example }}" ]; then
+            DIRS="${{ inputs.example }}"
           else
             DIRS=$(ls -d examples/*/ 2>/dev/null | sed 's|/$||')
           fi
