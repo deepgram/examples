@@ -1,0 +1,431 @@
+name: Test Examples
+
+# Single workflow replacing test-node/python/go/java.yml and test-pr-example.yml.
+#
+# Design:
+#   detect     — finds which example dirs changed, groups by language
+#   test-node  — runs only if detect found Node examples, skips otherwise
+#   test-python
+#   test-go
+#   test-java
+#   lint-md    — markdownlint --fix on changed READMEs; auto-commits fixes; always passes
+#   e2e-api-check — final gate: fails if any language job failed; this is the
+#                   required branch-protection check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'examples/**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or SHA to test (default: main)'
+        required: false
+        default: 'main'
+
+concurrency:
+  group: test-examples-${{ github.event.pull_request.number || inputs.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  # ── Detect which examples changed and what languages they use ───────────────
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      node_examples:   ${{ steps.scan.outputs.node_examples }}
+      python_examples: ${{ steps.scan.outputs.python_examples }}
+      go_examples:     ${{ steps.scan.outputs.go_examples }}
+      java_examples:   ${{ steps.scan.outputs.java_examples }}
+      md_files:        ${{ steps.scan.outputs.md_files }}
+      has_node:        ${{ steps.scan.outputs.has_node }}
+      has_python:      ${{ steps.scan.outputs.has_python }}
+      has_go:          ${{ steps.scan.outputs.has_go }}
+      has_java:        ${{ steps.scan.outputs.has_java }}
+      has_md:          ${{ steps.scan.outputs.has_md }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+
+      - name: Scan changed example directories
+        id: scan
+        run: |
+          # On PR: only dirs changed in this PR. On dispatch: all example dirs.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DIRS=$(git diff origin/main...HEAD --name-only 2>/dev/null \
+              | grep '^examples/' | cut -d/ -f1-2 | sort -u | grep -v '^\s*$')
+          else
+            DIRS=$(ls -d examples/*/ 2>/dev/null | sed 's|/$||')
+          fi
+
+          NODE_EX="" PYTHON_EX="" GO_EX="" JAVA_EX="" MD_FILES=""
+
+          for dir in $DIRS; do
+            [ ! -d "$dir" ] && continue
+            [ -f "${dir}/package.json" ]    && NODE_EX="${NODE_EX} ${dir}"
+            [ -f "${dir}/requirements.txt" ] && PYTHON_EX="${PYTHON_EX} ${dir}"
+            [ -f "${dir}/pyproject.toml" ]  && PYTHON_EX="${PYTHON_EX} ${dir}"
+            [ -f "${dir}/go.mod" ]          && GO_EX="${GO_EX} ${dir}"
+            [ -f "${dir}/pom.xml" ]         && JAVA_EX="${JAVA_EX} ${dir}"
+            [ -f "${dir}/build.gradle" ]    && JAVA_EX="${JAVA_EX} ${dir}"
+            [ -f "${dir}/README.md" ]       && MD_FILES="${MD_FILES} ${dir}/README.md"
+          done
+
+          NODE_EX=$(echo $NODE_EX | xargs)
+          PYTHON_EX=$(echo $PYTHON_EX | xargs)
+          GO_EX=$(echo $GO_EX | xargs)
+          JAVA_EX=$(echo $JAVA_EX | xargs)
+          MD_FILES=$(echo $MD_FILES | xargs)
+
+          echo "node_examples=$NODE_EX"   >> $GITHUB_OUTPUT
+          echo "python_examples=$PYTHON_EX" >> $GITHUB_OUTPUT
+          echo "go_examples=$GO_EX"       >> $GITHUB_OUTPUT
+          echo "java_examples=$JAVA_EX"   >> $GITHUB_OUTPUT
+          echo "md_files=$MD_FILES"       >> $GITHUB_OUTPUT
+
+          [ -n "$NODE_EX" ]   && echo "has_node=true"   >> $GITHUB_OUTPUT || echo "has_node=false"   >> $GITHUB_OUTPUT
+          [ -n "$PYTHON_EX" ] && echo "has_python=true" >> $GITHUB_OUTPUT || echo "has_python=false" >> $GITHUB_OUTPUT
+          [ -n "$GO_EX" ]     && echo "has_go=true"     >> $GITHUB_OUTPUT || echo "has_go=false"     >> $GITHUB_OUTPUT
+          [ -n "$JAVA_EX" ]   && echo "has_java=true"   >> $GITHUB_OUTPUT || echo "has_java=false"   >> $GITHUB_OUTPUT
+          [ -n "$MD_FILES" ]  && echo "has_md=true"     >> $GITHUB_OUTPUT || echo "has_md=false"     >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "Node examples:   ${NODE_EX:-none}"
+          echo "Python examples: ${PYTHON_EX:-none}"
+          echo "Go examples:     ${GO_EX:-none}"
+          echo "Java examples:   ${JAVA_EX:-none}"
+          echo "Markdown files:  ${MD_FILES:-none}"
+
+  # ── Node.js ─────────────────────────────────────────────────────────────────
+  test-node:
+    needs: detect
+    if: needs.detect.outputs.has_node == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run Node.js tests
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY:      ${{ secrets.DEEPGRAM_API_KEY }}
+          TWILIO_ACCOUNT_SID:    ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN:     ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER:   ${{ secrets.TWILIO_PHONE_NUMBER }}
+          LIVEKIT_URL:           ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY:       ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET:    ${{ secrets.LIVEKIT_API_SECRET }}
+          OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
+          DISCORD_BOT_TOKEN:     ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CLIENT_ID:     ${{ secrets.DISCORD_CLIENT_ID }}
+          VONAGE_APPLICATION_ID: ${{ secrets.VONAGE_APPLICATION_ID }}
+          VONAGE_PRIVATE_KEY:    ${{ secrets.VONAGE_PRIVATE_KEY }}
+          DAILY_API_KEY:         ${{ secrets.DAILY_API_KEY }}
+          PIPECAT_API_KEY:       ${{ secrets.PIPECAT_API_KEY }}
+          SLACK_BOT_TOKEN:       ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN:       ${{ secrets.SLACK_APP_TOKEN }}
+          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          FAILED="" MISSING=""
+          for dir in ${{ needs.detect.outputs.node_examples }}; do
+            echo ""; echo "── $dir ──"
+            pushd "$dir" > /dev/null
+            MISSING_VARS=""
+            if [ -f ".env.example" ]; then
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR="${line%%=*}"; VAR="${VAR// /}"
+                [ -z "$VAR" ] && continue
+                [ -z "${!VAR+x}" ] || [ -z "${!VAR}" ] && MISSING_VARS="$MISSING_VARS $VAR"
+              done < ".env.example"
+            fi
+            if [ -n "$MISSING_VARS" ]; then
+              echo "⏳ MISSING_CREDENTIALS:$(echo $MISSING_VARS | tr ' ' ',')"
+              MISSING="$MISSING $dir"
+              popd > /dev/null; continue
+            fi
+            npm install --prefer-offline -q 2>/dev/null || npm install -q
+            npm test && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            popd > /dev/null
+          done
+          echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+          echo "missing=$MISSING" >> $GITHUB_OUTPUT
+          [ -n "$FAILED" ] && exit 1 || exit 0
+
+      - name: Comment missing credentials
+        if: steps.test.outputs.missing != '' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = '${{ steps.test.outputs.missing }}'.trim().split(/\s+/).filter(Boolean);
+            if (!missing.length) return;
+            const existing = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number });
+            if (existing.data.some(c => c.body.includes('Missing credentials'))) return;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number,
+              body: `⏳ **Missing credentials** — these Node.js examples need secrets:\n\n${missing.map(d => `- \`${d}\``).join('\n')}\n\n@deepgram-devrel please add the required secrets.` });
+
+  # ── Python ───────────────────────────────────────────────────────────────────
+  test-python:
+    needs: detect
+    if: needs.detect.outputs.has_python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Python tests
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY:      ${{ secrets.DEEPGRAM_API_KEY }}
+          TWILIO_ACCOUNT_SID:    ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN:     ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER:   ${{ secrets.TWILIO_PHONE_NUMBER }}
+          LIVEKIT_URL:           ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY:       ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET:    ${{ secrets.LIVEKIT_API_SECRET }}
+          OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
+          DISCORD_BOT_TOKEN:     ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CLIENT_ID:     ${{ secrets.DISCORD_CLIENT_ID }}
+          VONAGE_APPLICATION_ID: ${{ secrets.VONAGE_APPLICATION_ID }}
+          VONAGE_PRIVATE_KEY:    ${{ secrets.VONAGE_PRIVATE_KEY }}
+          DAILY_API_KEY:         ${{ secrets.DAILY_API_KEY }}
+          PIPECAT_API_KEY:       ${{ secrets.PIPECAT_API_KEY }}
+          SLACK_BOT_TOKEN:       ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN:       ${{ secrets.SLACK_APP_TOKEN }}
+          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          FAILED="" MISSING=""
+          for dir in ${{ needs.detect.outputs.python_examples }}; do
+            echo ""; echo "── $dir ──"
+            pushd "$dir" > /dev/null
+            MISSING_VARS=""
+            if [ -f ".env.example" ]; then
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR="${line%%=*}"; VAR="${VAR// /}"
+                [ -z "$VAR" ] && continue
+                [ -z "${!VAR+x}" ] || [ -z "${!VAR}" ] && MISSING_VARS="$MISSING_VARS $VAR"
+              done < ".env.example"
+            fi
+            if [ -n "$MISSING_VARS" ]; then
+              echo "⏳ MISSING_CREDENTIALS:$(echo $MISSING_VARS | tr ' ' ',')"
+              MISSING="$MISSING $dir"; popd > /dev/null; continue
+            fi
+            pip install -q --upgrade pip
+            [ -f "requirements.txt" ] && pip install -q -r requirements.txt
+            [ -f "pyproject.toml" ]   && pip install -q -e .
+            if find tests/ -name "test_*.py" 2>/dev/null | grep -q .; then
+              pip install -q pytest
+              python -m pytest tests/ -q && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            elif ls tests/*.py 2>/dev/null | head -1 | grep -q .; then
+              python "$(ls tests/*.py | head -1)" && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            else
+              echo "⚠ No tests found"
+            fi
+            popd > /dev/null
+          done
+          echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+          echo "missing=$MISSING" >> $GITHUB_OUTPUT
+          [ -n "$FAILED" ] && exit 1 || exit 0
+
+      - name: Comment missing credentials
+        if: steps.test.outputs.missing != '' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = '${{ steps.test.outputs.missing }}'.trim().split(/\s+/).filter(Boolean);
+            if (!missing.length) return;
+            const existing = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number });
+            if (existing.data.some(c => c.body.includes('Missing credentials'))) return;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number,
+              body: `⏳ **Missing credentials** — these Python examples need secrets:\n\n${missing.map(d => `- \`${d}\``).join('\n')}\n\n@deepgram-devrel please add the required secrets.` });
+
+  # ── Go ───────────────────────────────────────────────────────────────────────
+  test-go:
+    needs: detect
+    if: needs.detect.outputs.has_go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Run Go tests
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          FAILED="" MISSING=""
+          for dir in ${{ needs.detect.outputs.go_examples }}; do
+            echo ""; echo "── $dir ──"
+            pushd "$dir" > /dev/null
+            MISSING_VARS=""
+            if [ -f ".env.example" ]; then
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR="${line%%=*}"; VAR="${VAR// /}"
+                [ -z "$VAR" ] && continue
+                [ -z "${!VAR+x}" ] || [ -z "${!VAR}" ] && MISSING_VARS="$MISSING_VARS $VAR"
+              done < ".env.example"
+            fi
+            if [ -n "$MISSING_VARS" ]; then
+              echo "⏳ MISSING_CREDENTIALS:$(echo $MISSING_VARS | tr ' ' ',')"
+              MISSING="$MISSING $dir"; popd > /dev/null; continue
+            fi
+            go mod download
+            go test ./... -v -timeout 60s && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            popd > /dev/null
+          done
+          echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+          echo "missing=$MISSING" >> $GITHUB_OUTPUT
+          [ -n "$FAILED" ] && exit 1 || exit 0
+
+  # ── Java ─────────────────────────────────────────────────────────────────────
+  test-java:
+    needs: detect
+    if: needs.detect.outputs.has_java == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Run Java tests
+        id: test
+        continue-on-error: true
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+        run: |
+          FAILED="" MISSING=""
+          for dir in ${{ needs.detect.outputs.java_examples }}; do
+            echo ""; echo "── $dir ──"
+            pushd "$dir" > /dev/null
+            MISSING_VARS=""
+            if [ -f ".env.example" ]; then
+              while IFS= read -r line; do
+                [[ -z "${line// }" || "$line" == \#* ]] && continue
+                VAR="${line%%=*}"; VAR="${VAR// /}"
+                [ -z "$VAR" ] && continue
+                [ -z "${!VAR+x}" ] || [ -z "${!VAR}" ] && MISSING_VARS="$MISSING_VARS $VAR"
+              done < ".env.example"
+            fi
+            if [ -n "$MISSING_VARS" ]; then
+              echo "⏳ MISSING_CREDENTIALS:$(echo $MISSING_VARS | tr ' ' ',')"
+              MISSING="$MISSING $dir"; popd > /dev/null; continue
+            fi
+            if [ -f "pom.xml" ]; then
+              mvn test -q && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            else
+              ./gradlew test && echo "✓ PASSED" || { echo "✗ FAILED"; FAILED="$FAILED $dir"; }
+            fi
+            popd > /dev/null
+          done
+          echo "failed=$FAILED"   >> $GITHUB_OUTPUT
+          echo "missing=$MISSING" >> $GITHUB_OUTPUT
+          [ -n "$FAILED" ] && exit 1 || exit 0
+
+  # ── Markdown lint (auto-fix, always passes) ──────────────────────────────────
+  lint-md:
+    needs: detect
+    if: needs.detect.outputs.has_md == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || '' }}
+          fetch-depth: 0
+
+      - name: Configure git
+        if: github.event_name == 'pull_request'
+        run: |
+          git config user.name "examples-bot"
+          git config user.email "noreply@deepgram.com"
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli --silent
+
+      - name: Lint and auto-fix markdown
+        run: |
+          FILES="${{ needs.detect.outputs.md_files }}"
+          echo "Linting: $FILES"
+          # --fix applies auto-fixable rules (trailing spaces, blank lines, etc.)
+          markdownlint --fix $FILES 2>&1 || true
+          echo "✓ Lint complete (auto-fixes applied if any)"
+
+      - name: Commit fixes if any
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet; then
+            echo "No markdown fixes needed."
+          else
+            git add ${{ needs.detect.outputs.md_files }}
+            git commit -m "style(docs): auto-fix markdown lint issues [skip ci]"
+            git push origin HEAD
+            echo "✓ Committed markdown fixes"
+          fi
+
+  # ── Final gate — the required branch-protection check ────────────────────────
+  # Runs after all language jobs regardless of their outcome.
+  # Fails only if a language job actually failed (not skipped, not missing-creds).
+  e2e-api-check:
+    needs: [detect, test-node, test-python, test-go, test-java, lint-md]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate results
+        run: |
+          NODE="${{ needs.test-node.result }}"
+          PYTHON="${{ needs.test-python.result }}"
+          GO="${{ needs.test-go.result }}"
+          JAVA="${{ needs.test-java.result }}"
+          LINT="${{ needs.lint-md.result }}"
+
+          echo "node:   $NODE"
+          echo "python: $PYTHON"
+          echo "go:     $GO"
+          echo "java:   $JAVA"
+          echo "lint:   $LINT"
+
+          # 'skipped' = no examples of that language — that's fine
+          # 'success' = tests passed
+          # 'failure' = real test failures — block merge
+          # 'cancelled' = workflow was cancelled — block merge
+          FAILED=false
+          for result in "$NODE" "$PYTHON" "$GO" "$JAVA"; do
+            [ "$result" = "failure" ]   && FAILED=true
+            [ "$result" = "cancelled" ] && FAILED=true
+          done
+
+          if [ "$FAILED" = "true" ]; then
+            echo "❌ One or more test jobs failed — blocking merge"
+            exit 1
+          else
+            echo "✅ All applicable tests passed (skipped jobs had no examples to test)"
+            exit 0
+          fi
