@@ -113,11 +113,15 @@ jobs:
             If the request is a question:
             - Answer it directly in a comment
 
-            Always post a reply comment to close the loop:
+            Always post a reply comment to close the loop. Replies are posted
+            as github-actions[bot] (the GITHUB_TOKEN identity) — do NOT sign
+            with the name of the person who asked the question. The reply
+            should make it clear Claude acted on the request:
             ```bash
             gh pr comment ${{ steps.ctx.outputs.issue_number }} \
               --repo ${{ github.repository }} \
-              --body "your response here"
+              --body "**Claude:** your response here"
             ```
 
             ⛔ Never modify files under .github/
+            ⛔ Never post a reply that sounds like it came from @${{ github.event.comment.user.login }}
