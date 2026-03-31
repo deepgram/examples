@@ -1,0 +1,5 @@
+deepgram-sdk>=3.0.0
+llama-index-core>=0.12.0
+llama-index-llms-openai>=0.4.0
+llama-index-embeddings-openai>=0.3.0
+python-dotenv>=1.0.0
