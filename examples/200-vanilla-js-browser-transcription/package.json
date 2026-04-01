@@ -1,0 +1,20 @@
+{
+  "name": "deepgram-vanilla-js-browser-transcription",
+  "version": "1.0.0",
+  "description": "Live browser microphone transcription with Deepgram — vanilla JS, no bundler",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^5.0.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-ws": "^5.0.2",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
