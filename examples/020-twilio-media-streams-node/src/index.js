@@ -5,7 +5,6 @@ require('dotenv').config();
 const express = require('express');
 const expressWs = require('express-ws');
 const { DeepgramClient } = require('@deepgram/sdk');
-const twilio = require('twilio');
 
 const PORT = process.env.PORT || 3000;
 
@@ -84,7 +83,11 @@ function createApp() {
             console.log('[twilio] Stream stopped');
             if (dgConnection) {
               try { dgConnection.sendCloseStream({ type: 'CloseStream' }); } catch {}
+              try { dgConnection.close(); } catch {}
+              dgConnection = null;
+              dgReady = false;
             }
+            twilioWs.close();
             break;
 
           default:
@@ -98,7 +101,7 @@ function createApp() {
     twilioWs.on('close', () => {
       console.log('[media] Twilio WebSocket closed');
       if (dgConnection) {
-        try { dgConnection.sendCloseStream({ type: 'CloseStream' }); } catch {}
+        try { dgConnection.close(); } catch {}
         dgConnection = null;
         dgReady = false;
       }
@@ -114,7 +117,7 @@ function createApp() {
     });
 
     try {
-      dgConnection = await deepgram.listen.v1.createConnection(DEEPGRAM_LIVE_OPTIONS);
+      dgConnection = await deepgram.listen.v1.connect(DEEPGRAM_LIVE_OPTIONS);
 
       dgConnection.on('open', () => {
         console.log('[deepgram] Connection opened');
