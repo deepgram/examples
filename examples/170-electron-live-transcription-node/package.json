@@ -1,0 +1,20 @@
+{
+  "name": "deepgram-electron-live-transcription",
+  "version": "1.0.0",
+  "description": "Electron floating overlay that transcribes microphone audio in real-time using Deepgram live STT",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron src/main.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^5.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "electron": "^41.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
