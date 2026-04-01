@@ -389,9 +389,12 @@ jobs:
             2. Search Kapa for current correct SDK usage (instructions/kapa-search.md)
             3. Identify the root cause (outdated SDK, deprecated API, dependency change)
             4. Fix the code
-            5. Create a branch and PR:
-               - Branch: fix/${{ steps.collect.outputs.slug }}-regression-${{ steps.date.outputs.date }}
-               - Label: type:fix
+            5. Open or update a PR — one PR per example, additive:
+               - Check for an existing open PR whose branch starts with fix/${{ steps.collect.outputs.slug }}:
+                 EXISTING=$(gh pr list --state open --search "fix ${{ steps.collect.outputs.slug }}" --json number,headRefName --jq '.[0]')
+               - If one exists: check out its branch, push the fix there (no new PR)
+               - If none exists: create branch fix/${{ steps.collect.outputs.slug }}-regression-${{ steps.date.outputs.date }},
+                 commit, push, and open a new PR with label type:fix
                - Title: [Fix] {NNN}-${{ steps.collect.outputs.slug }} — {brief description}
                - Do NOT enable auto-merge — PRs wait for human review and merge
 
