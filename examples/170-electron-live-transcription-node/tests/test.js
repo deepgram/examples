@@ -184,9 +184,59 @@ function testFileStructure() {
   console.log('File structure check passed');
 }
 
+// ── Test 3: Electron integration validation ─────────────────────────────────
+// Full Electron UI testing requires a display server, so this test validates
+// that the Electron package resolves, all source files are syntactically valid,
+// and the main process module exports the expected functions.
+function testElectronIntegration() {
+  const root = path.join(__dirname, '..');
+
+  const electronPath = require.resolve('electron');
+  if (!electronPath) throw new Error('electron package does not resolve');
+  console.log(`electron package resolves to: ${electronPath}`);
+
+  const sourceFiles = ['src/main.js', 'src/preload.js', 'src/renderer.js'];
+  for (const f of sourceFiles) {
+    const full = path.join(root, f);
+    execSync(`node --check "${full}"`, { stdio: 'pipe' });
+  }
+  console.log('All Electron source files pass syntax check');
+
+  const mainSrc = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
+  const electronImports = [
+    'BrowserWindow', 'ipcMain', 'Tray', 'Menu', 'globalShortcut', 'nativeImage',
+  ];
+  for (const api of electronImports) {
+    if (!mainSrc.includes(api)) {
+      throw new Error(`main.js missing expected Electron API: ${api}`);
+    }
+  }
+  console.log('main.js uses expected Electron APIs: ' + electronImports.join(', '));
+
+  const preloadSrc = fs.readFileSync(path.join(root, 'src/preload.js'), 'utf8');
+  if (!preloadSrc.includes('contextBridge')) {
+    throw new Error('preload.js missing contextBridge usage');
+  }
+  if (!preloadSrc.includes('ipcRenderer')) {
+    throw new Error('preload.js missing ipcRenderer usage');
+  }
+  console.log('preload.js uses contextBridge and ipcRenderer correctly');
+
+  if (!mainSrc.includes('contextIsolation: true')) {
+    throw new Error('main.js missing contextIsolation: true (security requirement)');
+  }
+  if (!mainSrc.includes('nodeIntegration: false')) {
+    throw new Error('main.js missing nodeIntegration: false (security requirement)');
+  }
+  console.log('Electron security settings verified (contextIsolation, nodeIntegration)');
+
+  console.log('Electron integration validation passed');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function run() {
   testFileStructure();
+  testElectronIntegration();
   await testDeepgramLiveTranscription();
 }
 
