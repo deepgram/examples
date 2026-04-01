@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deepgram Live Transcription</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 640px; margin: 40px auto; padding: 0 16px;
+      color: #1a1a1a; background: #fafafa;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 8px; }
+    p.subtitle { color: #666; margin-bottom: 24px; font-size: 0.95rem; }
+    button {
+      padding: 10px 24px; font-size: 1rem; border: none; border-radius: 6px;
+      cursor: pointer; color: #fff; background: #13ef93; transition: background 0.15s;
+    }
+    button:hover { background: #0fd882; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.stop { background: #e74c3c; }
+    button.stop:hover { background: #c0392b; }
+    #status {
+      margin-top: 12px; font-size: 0.85rem; color: #888;
+    }
+    #transcript-box {
+      margin-top: 24px; padding: 16px; min-height: 120px;
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+      font-size: 1rem; line-height: 1.6; white-space: pre-wrap;
+    }
+    #transcript-box .interim { color: #999; }
+  </style>
+</head>
+<body>
+  <h1>Deepgram Live Transcription</h1>
+  <p class="subtitle">Vanilla JavaScript &mdash; no bundler, no framework</p>
+
+  <button id="btn" onclick="toggle()">Start Listening</button>
+  <div id="status"></div>
+  <div id="transcript-box"></div>
+
+  <script>
+    // ── AudioWorklet processor (inline as a Blob URL so there is no extra file) ──
+    // Captures raw PCM float32 samples from the microphone, converts them to
+    // 16-bit signed integers (linear16), and posts the buffer to the main thread.
+    var WORKLET_CODE = [
+      'class PcmProcessor extends AudioWorkletProcessor {',
+      '  process(inputs) {',
+      '    var ch = inputs[0][0];',
+      '    if (ch) {',
+      '      var buf = new Int16Array(ch.length);',
+      '      for (var i = 0; i < ch.length; i++) {',
+      '        var s = ch[i]; if (s > 1) s = 1; else if (s < -1) s = -1;',
+      '        buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;',
+      '      }',
+      '      this.port.postMessage(buf.buffer, [buf.buffer]);',
+      '    }',
+      '    return true;',
+      '  }',
+      '}',
+      "registerProcessor('pcm-processor', PcmProcessor);"
+    ].join('\n');
+
+    var btn = document.getElementById('btn');
+    var statusEl = document.getElementById('status');
+    var box = document.getElementById('transcript-box');
+
+    var ws = null;
+    var audioCtx = null;
+    var micStream = null;
+    var running = false;
+    var finalText = '';
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    function render(interim) {
+      box.innerHTML = '';
+      if (finalText) {
+        var span = document.createElement('span');
+        span.textContent = finalText;
+        box.appendChild(span);
+      }
+      if (interim) {
+        var s = document.createElement('span');
+        s.className = 'interim';
+        s.textContent = (finalText ? ' ' : '') + interim;
+        box.appendChild(s);
+      }
+    }
+
+    async function start() {
+      finalText = '';
+      render('');
+
+      // 1. Get microphone access
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        setStatus('Microphone access denied');
+        return;
+      }
+
+      // 2. Connect WebSocket to the backend proxy
+      var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(proto + '://' + location.host + '/listen');
+
+      ws.onopen = async function () {
+        setStatus('Connected — speak into your microphone');
+
+        // 3. Set up AudioWorklet to capture raw PCM at 16 kHz
+        // AudioContext at 16 kHz keeps bandwidth low and matches the Deepgram
+        // config on the server (sample_rate: 16000).
+        audioCtx = new AudioContext({ sampleRate: 16000 });
+        var blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
+        var url = URL.createObjectURL(blob);
+        await audioCtx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+
+        var source = audioCtx.createMediaStreamSource(micStream);
+        var worklet = new AudioWorkletNode(audioCtx, 'pcm-processor');
+
+        worklet.port.onmessage = function (e) {
+          // Send raw PCM bytes to the server if the socket is open
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(e.data);
+          }
+        };
+
+        source.connect(worklet);
+        worklet.connect(audioCtx.destination);
+      };
+
+      ws.onmessage = function (e) {
+        try {
+          var msg = JSON.parse(e.data);
+          if (msg.error) { setStatus('Error: ' + msg.error); return; }
+
+          var text = msg.channel && msg.channel.alternatives &&
+                     msg.channel.alternatives[0] &&
+                     msg.channel.alternatives[0].transcript;
+          if (!text) return;
+
+          if (msg.is_final) {
+            finalText = finalText ? finalText + ' ' + text : text;
+            render('');
+          } else {
+            render(text);
+          }
+        } catch (_) {}
+      };
+
+      ws.onclose = function () {
+        if (running) { setStatus('Connection closed'); stop(); }
+      };
+      ws.onerror = function () { setStatus('WebSocket error'); };
+
+      running = true;
+      btn.textContent = 'Stop Listening';
+      btn.className = 'stop';
+    }
+
+    function stop() {
+      running = false;
+      btn.textContent = 'Start Listening';
+      btn.className = '';
+
+      if (audioCtx) { audioCtx.close().catch(function () {}); audioCtx = null; }
+      if (micStream) { micStream.getTracks().forEach(function (t) { t.stop(); }); micStream = null; }
+      if (ws) { ws.close(); ws = null; }
+
+      setStatus('Stopped');
+    }
+
+    function toggle() {
+      if (running) stop(); else start();
+    }
+  </script>
+</body>
+</html>
