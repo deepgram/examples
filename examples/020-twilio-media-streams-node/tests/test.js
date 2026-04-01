@@ -185,18 +185,35 @@ function testMediaStreamFlow(port, audioData) {
         },
       }));
 
-      // 3. "media" — one message per 20 ms frame of base64-encoded μ-law audio
-      // Throttled to real-time so Deepgram receives a natural audio stream.
-      // We cap at 5 seconds to keep the test fast.
       let offset = 0;
-      const MAX_BYTES = 8000 * 5; // 5 seconds at 8 kHz
+      const MAX_BYTES = 8000 * 10; // 10 seconds at 8 kHz
+      let settled = false;
+
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        cleanup(() => {
+          if (transcripts.length === 0) {
+            reject(new Error(
+              'No transcripts received from Deepgram after streaming audio.\n' +
+              'This may indicate a Deepgram connection issue or audio encoding problem.',
+            ));
+          } else {
+            resolve(transcripts);
+          }
+        });
+      };
 
       const sendChunk = () => {
         if (ws.readyState !== WebSocket.OPEN) return;
 
         if (offset >= audioData.length || offset >= MAX_BYTES) {
           ws.send(JSON.stringify({ event: 'stop', streamSid: 'MZ_ci_test' }));
-          setTimeout(() => ws.close(), 500);
+          setTimeout(() => {
+            try { ws.close(); } catch {}
+            setTimeout(settle, 2000);
+          }, 500);
           return;
         }
 
@@ -211,28 +228,14 @@ function testMediaStreamFlow(port, audioData) {
         }));
 
         offset += CHUNK_SIZE;
-        setTimeout(sendChunk, 20); // 20 ms real-time pacing
+        setTimeout(sendChunk, 20);
       };
 
-      // Give the Deepgram WebSocket inside the server a moment to open
       setTimeout(sendChunk, 500);
     });
 
     ws.on('close', () => {
-      // Wait for any final Deepgram messages to arrive after stop
-      setTimeout(() => {
-        clearTimeout(timeout);
-        cleanup(() => {
-          if (transcripts.length === 0) {
-            reject(new Error(
-              'No transcripts received from Deepgram after streaming 5 s of audio.\n' +
-              'This may indicate a Deepgram connection issue or audio encoding problem.',
-            ));
-          } else {
-            resolve(transcripts);
-          }
-        });
-      }, 2000);
+      setTimeout(settle, 2000);
     });
   });
 }
