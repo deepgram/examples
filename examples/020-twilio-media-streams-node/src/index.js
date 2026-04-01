@@ -83,7 +83,6 @@ function createApp() {
               try { dgConnection.close(); } catch {}
               dgConnection = null;
             }
-            twilioWs.close();
             break;
 
           default:
