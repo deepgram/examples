@@ -46,7 +46,27 @@ jobs:
         id: date
         run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
+      - name: Check back pressure
+        id: backpressure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Count PRs that are reviewed and waiting for human merge.
+          # If 5 or more are queued, pause building new examples.
+          READY=$(gh pr list --repo ${{ github.repository }} --state open \
+            --label "status:review-passed" \
+            --json number --jq 'length' 2>/dev/null || echo "0")
+          echo "PRs ready to merge: $READY"
+          if [ "$READY" -ge 5 ]; then
+            echo "blocked=true" >> $GITHUB_OUTPUT
+            echo "⏸ Back pressure: $READY PRs already waiting for merge — skipping this run"
+          else
+            echo "blocked=false" >> $GITHUB_OUTPUT
+            echo "✓ Pipeline has capacity ($READY/5 slots used)"
+          fi
+
       - name: Run instruction
+        if: steps.backpressure.outputs.blocked != 'true'
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
