@@ -47,7 +47,7 @@ function createApp() {
     console.log(`[voice] New call → streaming to ${streamUrl}`);
   });
 
-  app.ws('/media', async (twilioWs) => {
+  app.ws('/media', (twilioWs) => {
     let dgConnection = null;
     let dgReady = false;
     let streamSid = null;
@@ -101,6 +101,7 @@ function createApp() {
     twilioWs.on('close', () => {
       console.log('[media] Twilio WebSocket closed');
       if (dgConnection) {
+        try { dgConnection.sendCloseStream({ type: 'CloseStream' }); } catch {}
         try { dgConnection.close(); } catch {}
         dgConnection = null;
         dgReady = false;
@@ -116,7 +117,7 @@ function createApp() {
       }
     });
 
-    try {
+    (async () => {
       dgConnection = await deepgram.listen.v1.connect(DEEPGRAM_LIVE_OPTIONS);
 
       dgConnection.on('open', () => {
@@ -149,9 +150,9 @@ function createApp() {
 
       dgConnection.connect();
       await dgConnection.waitForOpen();
-    } catch (err) {
+    })().catch((err) => {
       console.error('[deepgram] Failed to connect:', err.message || err);
-    }
+    });
   });
 
   app.get('/', (_req, res) => {
