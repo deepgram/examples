@@ -48,36 +48,13 @@ function createApp() {
     console.log(`[voice] New call → streaming to ${streamUrl}`);
   });
 
-  app.ws('/media', async (twilioWs) => {
+  app.ws('/media', (twilioWs) => {
     let dgConnection = null;
+    let dgReady = false;
     let streamSid = null;
+    const mediaQueue = [];
 
     console.log('[media] Twilio WebSocket connected');
-
-    dgConnection = await deepgram.listen.v1.createConnection(DEEPGRAM_LIVE_OPTIONS);
-
-    dgConnection.on('open', () => {
-      console.log('[deepgram] Connection opened');
-    });
-
-    dgConnection.on('error', (err) => {
-      console.error('[deepgram] Error:', err.message);
-    });
-
-    dgConnection.on('close', () => {
-      console.log('[deepgram] Connection closed');
-    });
-
-    dgConnection.on('message', (data) => {
-      const transcript = data?.channel?.alternatives?.[0]?.transcript;
-      if (transcript) {
-        const tag = data.is_final ? 'final' : 'interim';
-        console.log(`[${tag}] ${transcript}`);
-      }
-    });
-
-    dgConnection.connect();
-    await dgConnection.waitForOpen();
 
     twilioWs.on('message', (raw) => {
       try {
@@ -94,12 +71,13 @@ function createApp() {
             break;
 
           case 'media':
-            try {
-              if (dgConnection) {
+            if (dgReady && dgConnection) {
+              try {
                 dgConnection.sendMedia(Buffer.from(message.media.payload, 'base64'));
-              }
-            } catch {}
-
+              } catch {}
+            } else {
+              mediaQueue.push(message.media.payload);
+            }
             break;
 
           case 'stop':
@@ -134,6 +112,42 @@ function createApp() {
         try { dgConnection.close(); } catch {}
         dgConnection = null;
       }
+    });
+
+    (async () => {
+      dgConnection = await deepgram.listen.v1.createConnection(DEEPGRAM_LIVE_OPTIONS);
+
+      dgConnection.on('open', () => {
+        console.log('[deepgram] Connection opened');
+        dgReady = true;
+        while (mediaQueue.length > 0) {
+          try {
+            dgConnection.sendMedia(Buffer.from(mediaQueue.shift(), 'base64'));
+          } catch {}
+        }
+      });
+
+      dgConnection.on('error', (err) => {
+        console.error('[deepgram] Error:', err.message);
+      });
+
+      dgConnection.on('close', () => {
+        console.log('[deepgram] Connection closed');
+        dgReady = false;
+      });
+
+      dgConnection.on('message', (data) => {
+        const transcript = data?.channel?.alternatives?.[0]?.transcript;
+        if (transcript) {
+          const tag = data.is_final ? 'final' : 'interim';
+          console.log(`[${tag}] ${transcript}`);
+        }
+      });
+
+      dgConnection.connect();
+      await dgConnection.waitForOpen();
+    })().catch((err) => {
+      console.error('[deepgram] Setup failed:', err.message);
     });
   });
 
