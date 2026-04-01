@@ -95,3 +95,7 @@ jobs:
           SLACK_BOT_TOKEN:       ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN:       ${{ secrets.SLACK_APP_TOKEN }}
           TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ZOOM_ACCOUNT_ID:       ${{ secrets.ZOOM_ACCOUNT_ID }}
+          ZOOM_CLIENT_ID:        ${{ secrets.ZOOM_CLIENT_ID }}
+          ZOOM_CLIENT_SECRET:    ${{ secrets.ZOOM_CLIENT_SECRET }}
+          ZOOM_WEBHOOK_SECRET_TOKEN: ${{ secrets.ZOOM_WEBHOOK_SECRET_TOKEN }}

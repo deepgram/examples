@@ -132,6 +132,9 @@ git commit -m "fix(examples): {description of what was fixed} in {NNN}-{slug}"
 git push origin "$BRANCH"
 ```
 
+The fix is pushed to the PR's existing branch — no new PRs are opened. One PR per example,
+all fixes accumulate as commits on the same branch.
+
 ---
 
 ## Step 8: Post comment and remove label

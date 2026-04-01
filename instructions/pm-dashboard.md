@@ -119,34 +119,32 @@ git diff --quiet README.md && echo "README unchanged" && exit 0
 
 ---
 
-## Step 4: Open PR and auto-merge
+## Step 4: Open PR (or update existing one)
+
+Use a single persistent branch so there is never more than one open README PR.
+If a PR already exists for this branch, push the update to it in place.
 
 ```bash
-DATE=$(date -u +%Y-%m-%d-%H%M)
-BRANCH="chore/examples-status-${DATE}"
-SHA=$(git rev-parse HEAD)
+BRANCH="chore/examples-status-update"
 
-git checkout -b "$BRANCH"
+git checkout -B "$BRANCH"
 git add README.md
 git commit -m "docs: update examples status table [skip ci]"
-git push origin "$BRANCH"
 
-PR_URL=$(gh pr create \
-  --title "docs: update examples status table — ${DATE}" \
-  --body "Automated dashboard update. No code changes." \
-  --base main --head "$BRANCH")
+# Check for an already-open PR on this branch
+EXISTING_PR=$(gh pr list --repo {repo} --head "$BRANCH" --state open \
+  --json number --jq '.[0].number')
 
-PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-SHA=$(git rev-parse HEAD)
-
-# Post e2e-api-check:success — README-only change, nothing to test
-gh api "repos/${{ github.repository }}/statuses/${SHA}" \
-  --method POST \
-  -f state="success" \
-  -f context="e2e-api-check" \
-  -f description="README-only change — no examples to test" \
-  -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-gh pr merge "$PR_NUMBER" --auto --squash
-echo "PR: $PR_URL"
+if [ -n "$EXISTING_PR" ]; then
+  # Update the existing PR by force-pushing — same PR, new content
+  git push --force-with-lease origin "$BRANCH"
+  echo "Updated existing PR #$EXISTING_PR"
+else
+  git push origin "$BRANCH"
+  gh pr create \
+    --title "docs: update examples status table" \
+    --body "Automated dashboard update. No code changes." \
+    --base main --head "$BRANCH"
+  echo "Created new PR"
+fi
 ```
