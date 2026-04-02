@@ -157,7 +157,7 @@ async function testDeepgramSTT() {
       console.log('[deepgram] Connected — streaming audio...');
 
       const CHUNK_BYTES = 640;
-      const MAX_BYTES = 16000 * 2 * 5;
+      const MAX_BYTES = 16000 * 2 * 15;
       let pos = 0;
 
       const sendChunk = () => {
