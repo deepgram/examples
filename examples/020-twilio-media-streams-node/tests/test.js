@@ -153,12 +153,30 @@ function testMediaStreamFlow(port, audioData) {
 
     const cleanup = (fn) => { console.log = origLog; fn(); };
 
+    let settled = false;
+
     const timeout = setTimeout(() => {
       cleanup(() => reject(new Error(
         'Timed out (30s) waiting for Deepgram transcript.\n' +
         'Check DEEPGRAM_API_KEY and connectivity to api.deepgram.com.',
       )));
     }, 30_000);
+
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      cleanup(() => {
+        if (transcripts.length === 0) {
+          reject(new Error(
+            'No transcripts received from Deepgram after streaming audio.\n' +
+            'This may indicate a Deepgram connection issue or audio encoding problem.',
+          ));
+        } else {
+          resolve(transcripts);
+        }
+      });
+    };
 
     const ws = new WebSocket(`ws://localhost:${port}/media`);
 
@@ -187,23 +205,6 @@ function testMediaStreamFlow(port, audioData) {
 
       let offset = 0;
       const MAX_BYTES = 8000 * 10; // 10 seconds at 8 kHz
-      let settled = false;
-
-      const settle = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        cleanup(() => {
-          if (transcripts.length === 0) {
-            reject(new Error(
-              'No transcripts received from Deepgram after streaming audio.\n' +
-              'This may indicate a Deepgram connection issue or audio encoding problem.',
-            ));
-          } else {
-            resolve(transcripts);
-          }
-        });
-      };
 
       const sendChunk = () => {
         if (ws.readyState !== WebSocket.OPEN) return;
