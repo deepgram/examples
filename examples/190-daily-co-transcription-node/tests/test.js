@@ -137,6 +137,7 @@ async function testDeepgramLiveTranscription() {
     utterance_end_ms: 1500,
     punctuate: true,
     diarize: true,
+    tag: 'deepgram-examples',
   });
 
   const transcripts = [];

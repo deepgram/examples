@@ -25,6 +25,7 @@ const DEEPGRAM_LIVE_OPTIONS = {
   // 1000 ms is a good default for phone conversations — short enough to feel
   // real-time, long enough to avoid splitting mid-sentence pauses.
   utterance_end_ms: 1000,
+  tag: 'deepgram-examples',
 };
 
 function createApp() {

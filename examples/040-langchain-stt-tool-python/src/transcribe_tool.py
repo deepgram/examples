@@ -55,6 +55,7 @@ def transcribe_audio(
         # smart_format adds punctuation, capitalisation, paragraph breaks,
         # and formats numbers/dates/currency. Adds ~10 ms — always worth it.
         smart_format=True,
+        tag="deepgram-examples",
     )
 
     transcript = response.results.channels[0].alternatives[0].transcript

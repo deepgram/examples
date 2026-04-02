@@ -38,6 +38,7 @@ def transcribe_file(client: DeepgramClient, file_path: str, **kwargs) -> dict:
         # which produces poor subtitle segmentation.
         utterances=True,
         diarize=kwargs.get("diarize", False),
+        tag="deepgram-examples",
     )
     # DeepgramConverter accepts either a dict or an object with .to_json().
     # SDK v6 returns a Pydantic model — use model_dump() to get a plain dict.
@@ -57,6 +58,7 @@ def transcribe_url(client: DeepgramClient, url: str, **kwargs) -> dict:
         smart_format=True,
         utterances=True,
         diarize=kwargs.get("diarize", False),
+        tag="deepgram-examples",
     )
     return response.model_dump()
 

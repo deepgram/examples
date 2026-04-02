@@ -19,6 +19,7 @@ const DEEPGRAM_LIVE_OPTIONS = {
   utterance_end_ms: 1500,
   punctuate: true,
   diarize: true, // ← THIS enables speaker labels for multi-participant calls
+  tag: 'deepgram-examples',
 };
 
 function createApp() {

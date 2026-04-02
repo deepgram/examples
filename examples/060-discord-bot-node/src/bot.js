@@ -81,6 +81,7 @@ async function transcribeAttachment(deepgram, attachment) {
     smart_format: true,
     // Detect paragraphs — useful for longer recordings.
     paragraphs: true,
+    tag: 'deepgram-examples',
   });
 
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;

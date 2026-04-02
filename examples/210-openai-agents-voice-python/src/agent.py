@@ -86,6 +86,7 @@ class DeepgramSTTModel(STTModel):
             model="nova-3",
             smart_format=True,
             encoding="linear16",
+            tag="deepgram-examples",
         )
         # response.results.channels[0].alternatives[0].transcript
         return response.results.channels[0].alternatives[0].transcript
@@ -131,6 +132,7 @@ class DeepgramStreamedTranscription(StreamedTranscriptionSession):
             encoding="linear16",
             sample_rate=24000,
             channels=1,
+            tag="deepgram-examples",
         ) as connection:
 
             async def on_message(message: ListenV1Response) -> None:
@@ -205,6 +207,7 @@ class DeepgramTTSModel(TTSModel):
             model="aura-2-asteria-en",
             encoding="linear16",
             sample_rate=24000,
+            tag="deepgram-examples",
         ) as connection:
 
             async def on_message(message: SpeakV1Response) -> None:

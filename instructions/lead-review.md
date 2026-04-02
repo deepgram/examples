@@ -139,6 +139,7 @@ If any of these fail, add `status:fix-needed` and post an `❌ Integration check
 
 Check:
 - [ ] Official Deepgram SDK used (no raw HTTP to Deepgram)
+- [ ] Every Deepgram API call includes `tag: "deepgram-examples"` (JS) or `tag="deepgram-examples"` (Python)
 - [ ] No hardcoded credentials
 - [ ] Error handling covers main failure cases
 - [ ] README: what you'll build, all env vars with where-to-get links, run instructions

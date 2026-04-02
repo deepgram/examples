@@ -54,6 +54,8 @@ async function main() {
     // Useful for multi-speaker audio. Adds ~200ms to response time.
     // Omit for single-speaker audio — it adds noise to the output.
     diarize: true,
+
+    tag: 'deepgram-examples',
   });
 
   // The response always has at least one channel.

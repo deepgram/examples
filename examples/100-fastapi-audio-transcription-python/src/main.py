@@ -82,6 +82,7 @@ async def transcribe_file(file: UploadFile = File(...)):
             # smart_format adds punctuation, capitalisation, paragraph breaks,
             # and formats numbers/dates/currency. Adds ~10 ms — always worth it.
             smart_format=True,
+            tag="deepgram-examples",
         )
     except Exception as exc:
         # Common causes: 400 (unsupported format), 402 (quota exceeded),
@@ -106,6 +107,7 @@ async def transcribe_url(body: UrlRequest):
         "url": body.url,
         "model": body.model,
         "smart_format": body.smart_format,
+        "tag": "deepgram-examples",
     }
     if body.language:
         kwargs["language"] = body.language

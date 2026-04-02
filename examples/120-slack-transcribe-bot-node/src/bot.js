@@ -90,6 +90,7 @@ async function transcribeBuffer(deepgram, buffer) {
     // Paragraph detection — useful for longer recordings. Each paragraph
     // becomes a separate block in the transcript.
     paragraphs: true,
+    tag: 'deepgram-examples',
   });
 
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;

@@ -35,6 +35,7 @@ async function run() {
     url: 'https://dpgr.am/spacewalk.wav',
     model: 'nova-3',
     smart_format: true,
+    tag: 'deepgram-examples',
   });
 
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;

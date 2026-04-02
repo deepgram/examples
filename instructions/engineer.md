@@ -116,16 +116,27 @@ DEEPGRAM_API_KEY=
 - Comment WHY, not WHAT (see commenting standard below)
 
 **SDK v5 patterns (verify with Kapa):**
+
+> ⛔ **Every Deepgram API call MUST include `tag: "deepgram-examples"` (JS) or
+> `tag="deepgram-examples"` (Python).** This tags usage in the Deepgram console so
+> internal test traffic is identifiable. No spaces in the tag value.
+
 ```javascript
 // Node.js — DeepgramClient (not createClient)
 const { DeepgramClient } = require('@deepgram/sdk');
 const client = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
 
 // Pre-recorded: flat options, throws on error
-const data = await client.listen.v1.media.transcribeUrl({ url, model: 'nova-3' });
+const data = await client.listen.v1.media.transcribeUrl(
+  { url },
+  { model: 'nova-3', tag: 'deepgram-examples' }  // ← tag is REQUIRED on every call
+);
 
 // Live WebSocket
-const conn = await client.listen.v1.connect({ model: 'nova-3', encoding: 'mulaw', sample_rate: 8000 });
+const conn = await client.listen.v1.connect({
+  model: 'nova-3', encoding: 'mulaw', sample_rate: 8000,
+  tag: 'deepgram-examples',  // ← tag is REQUIRED on every call
+});
 conn.on('open', () => { /* connected */ });
 conn.sendMedia(audioBuffer);
 conn.sendCloseStream({ type: 'CloseStream' });
@@ -136,7 +147,10 @@ conn.close();
 # Python — DeepgramClient() reads DEEPGRAM_API_KEY from env
 from deepgram import DeepgramClient
 client = DeepgramClient()
-response = client.listen.v1.media.transcribe_url(url=AUDIO_URL, model='nova-3')
+# tag="deepgram-examples" is REQUIRED on every Deepgram API call
+response = client.listen.v1.media.transcribe_url(
+    url=AUDIO_URL, model='nova-3', tag='deepgram-examples'
+)
 ```
 
 **Commenting standard:**

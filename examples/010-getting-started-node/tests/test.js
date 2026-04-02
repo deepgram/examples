@@ -55,6 +55,7 @@ async function run() {
     url: KNOWN_AUDIO_URL,
     model: 'nova-3',
     smart_format: true,
+    tag: 'deepgram-examples',
   });
 
   // Defensive optional chaining — if the response shape ever changes,

@@ -20,6 +20,7 @@ const DEEPGRAM_LIVE_OPTIONS = {
   smart_format: true,
   interim_results: true,
   utterance_end_ms: 1500,
+  tag: 'deepgram-examples',
 };
 
 function createApp() {

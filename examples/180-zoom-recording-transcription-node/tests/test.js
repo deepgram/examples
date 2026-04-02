@@ -38,6 +38,7 @@ async function run() {
     smart_format: true,
     diarize: true,
     paragraphs: true,
+    tag: 'deepgram-examples',
   });
 
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;

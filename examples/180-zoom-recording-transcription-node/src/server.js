@@ -143,6 +143,7 @@ async function handleRecordingCompleted(payload) {
     diarize: true,
     // ← THIS enables paragraph detection for readable output.
     paragraphs: true,
+    tag: 'deepgram-examples',
   });
 
   // data.results.channels[0].alternatives[0].transcript

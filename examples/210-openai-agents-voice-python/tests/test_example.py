@@ -29,6 +29,7 @@ def test_deepgram_stt():
         url="https://dpgr.am/spacewalk.wav",
         model="nova-3",
         smart_format=True,
+        tag="deepgram-examples",
     )
     transcript = response.results.channels[0].alternatives[0].transcript
     assert len(transcript) > 10, "Transcript too short"
@@ -50,6 +51,7 @@ def test_deepgram_tts():
         model="aura-2-asteria-en",
         encoding="linear16",
         sample_rate=24000,
+        tag="deepgram-examples",
     ))
     total_bytes = sum(len(c) for c in audio_chunks)
     assert total_bytes > 1000, f"TTS audio too small: {total_bytes} bytes"

@@ -31,6 +31,7 @@ class TranscriptionConsumer(AsyncWebsocketConsumer):
             encoding="linear16",
             sample_rate=16000,
             channels=1,
+            tag="deepgram-examples",
         )
 
         async def on_message(message) -> None:

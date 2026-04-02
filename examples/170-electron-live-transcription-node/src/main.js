@@ -74,6 +74,7 @@ async function startDeepgramConnection() {
     interim_results: true,
     utterance_end_ms: 1500,
     punctuate: true,
+    tag: 'deepgram-examples',
   });
 
   dgConnection.on('open', () => {

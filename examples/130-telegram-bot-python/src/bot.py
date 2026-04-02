@@ -78,6 +78,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             smart_format=True,
             # Telegram voice messages are typically one speaker. Enable
             # diarize=True if you expect multi-speaker forwarded recordings.
+            tag="deepgram-examples",
         )
 
         transcript = response.results.channels[0].alternatives[0].transcript

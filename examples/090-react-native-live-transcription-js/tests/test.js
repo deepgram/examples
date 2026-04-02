@@ -29,6 +29,7 @@ async function testPreRecordedSTT() {
     url: KNOWN_AUDIO_URL,
     model: 'nova-3',
     smart_format: true,
+    tag: 'deepgram-examples',
   });
 
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
@@ -60,6 +61,7 @@ async function testLiveWebSocketConnection() {
     sample_rate: 16000,
     channels: 1,
     Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+    tag: 'deepgram-examples',
   });
 
   await new Promise((resolve, reject) => {
