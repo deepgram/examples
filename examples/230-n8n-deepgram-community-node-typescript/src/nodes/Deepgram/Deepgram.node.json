@@ -1,0 +1,18 @@
+{
+	"node": "n8n-nodes-deepgram.deepgram",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["AI", "Developer Tools"],
+	"resources": {
+		"primaryDocumentation": [
+			{
+				"url": "https://developers.deepgram.com/docs"
+			}
+		],
+		"credentialDocumentation": [
+			{
+				"url": "https://developers.deepgram.com/docs/authenticating"
+			}
+		]
+	}
+}

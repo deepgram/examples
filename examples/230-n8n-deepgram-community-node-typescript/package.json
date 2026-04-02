@@ -1,0 +1,47 @@
+{
+	"name": "n8n-nodes-deepgram",
+	"version": "0.1.0",
+	"description": "n8n community nodes for Deepgram speech-to-text, text-to-speech, and audio intelligence",
+	"license": "MIT",
+	"keywords": [
+		"n8n-community-node-package",
+		"deepgram",
+		"speech-to-text",
+		"text-to-speech",
+		"audio-intelligence"
+	],
+	"author": {
+		"name": "Deepgram",
+		"url": "https://deepgram.com"
+	},
+	"scripts": {
+		"build": "tsc",
+		"test": "node tests/test.js"
+	},
+	"files": [
+		"dist"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"credentials": [
+			"dist/credentials/DeepgramApi.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/Deepgram/Deepgram.node.js"
+		]
+	},
+	"dependencies": {
+		"@deepgram/sdk": "5.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^25.5.0",
+		"n8n-workflow": "*",
+		"typescript": "~5.7.0"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	},
+	"engines": {
+		"node": ">=18"
+	}
+}
