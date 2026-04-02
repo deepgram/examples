@@ -1,0 +1,29 @@
+{
+  "name": "deepgram-nextjs-vercel-ai-sdk-streaming",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Next.js app with real-time streaming transcription and TTS using Deepgram via the Vercel AI SDK",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@ai-sdk/deepgram": "^2.0.0",
+    "@deepgram/sdk": "^3.11.0",
+    "ai": "^6.0.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
