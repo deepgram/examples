@@ -21,7 +21,7 @@ A monorepo with an Express.js server and a React (Vite) client. The browser capt
 
 ```bash
 # 1. Clone and enter the example directory
-cd examples/260-express-react-live-transcription-ts
+cd examples/280-express-react-live-transcription-ts
 
 # 2. Copy env file and add your Deepgram API key
 cp .env.example server/.env
