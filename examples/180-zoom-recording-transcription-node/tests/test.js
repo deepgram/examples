@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // ── Credential check — MUST be first ──────────────────────────────────────────
 // Exit code convention used across all examples in this repo:
@@ -21,84 +22,217 @@ if (missing.length > 0) {
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
-const { DeepgramClient } = require('@deepgram/sdk');
+// Import createApp() from the example's own source.
+// This tests the server's request handling logic without making real Zoom API calls.
+const { createApp } = require('../src/server.js');
 
-const KNOWN_AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
-const EXPECTED_WORDS = ['spacewalk', 'astronaut', 'nasa'];
+// Build a valid Zoom HMAC signature for a given body and timestamp.
+function buildZoomSignature(secret, timestamp, body) {
+  const message = `v0:${timestamp}:${JSON.stringify(body)}`;
+  const hash = crypto.createHmac('sha256', secret).update(message).digest('hex');
+  return `v0=${hash}`;
+}
+
+async function testServerStarts() {
+  console.log('Test 1: createApp() returns a configured Express app...');
+
+  const app = createApp();
+
+  if (typeof app !== 'function' && typeof app.listen !== 'function') {
+    throw new Error('createApp() did not return an Express application');
+  }
+
+  console.log('✓ createApp() returned an Express app');
+}
+
+async function testHealthEndpoint() {
+  console.log('\nTest 2: GET /health returns { status: "ok" }...');
+
+  const app = createApp();
+  const http = require('http');
+
+  await new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    server.listen(0, async () => {
+      const port = server.address().port;
+      try {
+        const resp = await fetch(`http://localhost:${port}/health`);
+        const data = await resp.json();
+        if (data.status !== 'ok') {
+          throw new Error(`Expected { status: "ok" }, got: ${JSON.stringify(data)}`);
+        }
+        console.log('✓ GET /health returned { status: "ok" }');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        server.close();
+      }
+    });
+    server.on('error', reject);
+  });
+}
+
+async function testWebhookUrlValidation() {
+  console.log('\nTest 3: POST /webhook — endpoint.url_validation HMAC handshake...');
+
+  const app = createApp();
+  const http = require('http');
+
+  await new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    server.listen(0, async () => {
+      const port = server.address().port;
+      try {
+        const plainToken = 'test-plain-token-abc123';
+        const body = {
+          event: 'endpoint.url_validation',
+          payload: { plainToken },
+        };
+
+        const resp = await fetch(`http://localhost:${port}/webhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Unexpected status ${resp.status} from /webhook`);
+        }
+
+        const data = await resp.json();
+
+        if (data.plainToken !== plainToken) {
+          throw new Error(`Expected plainToken "${plainToken}", got "${data.plainToken}"`);
+        }
+
+        // Verify the HMAC the server returned is correct.
+        const expectedHash = crypto
+          .createHmac('sha256', process.env.ZOOM_WEBHOOK_SECRET_TOKEN)
+          .update(plainToken)
+          .digest('hex');
+
+        if (data.encryptedToken !== expectedHash) {
+          throw new Error(
+            `encryptedToken mismatch.\nExpected: ${expectedHash}\nGot:      ${data.encryptedToken}`
+          );
+        }
+
+        console.log('✓ Webhook URL validation HMAC handshake correct');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        server.close();
+      }
+    });
+    server.on('error', reject);
+  });
+}
+
+async function testWebhookSignatureRejection() {
+  console.log('\nTest 4: POST /webhook — invalid signature returns 401...');
+
+  const app = createApp();
+  const http = require('http');
+
+  await new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    server.listen(0, async () => {
+      const port = server.address().port;
+      try {
+        const body = {
+          event: 'recording.completed',
+          payload: {},
+        };
+
+        const resp = await fetch(`http://localhost:${port}/webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-zm-request-timestamp': '1234567890',
+            'x-zm-signature': 'v0=invalidsignature',
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (resp.status !== 401) {
+          throw new Error(`Expected 401 for invalid signature, got ${resp.status}`);
+        }
+
+        const data = await resp.json();
+        if (!data.error) {
+          throw new Error('Expected error field in 401 response');
+        }
+
+        console.log('✓ Invalid signature correctly rejected with 401');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        server.close();
+      }
+    });
+    server.on('error', reject);
+  });
+}
+
+async function testWebhookValidSignatureIgnoredEvent() {
+  console.log('\nTest 5: POST /webhook — valid signature, unknown event returns ignored...');
+
+  const app = createApp();
+  const http = require('http');
+
+  await new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    server.listen(0, async () => {
+      const port = server.address().port;
+      try {
+        const timestamp = String(Math.floor(Date.now() / 1000));
+        const body = { event: 'meeting.started', payload: {} };
+        const signature = buildZoomSignature(
+          process.env.ZOOM_WEBHOOK_SECRET_TOKEN,
+          timestamp,
+          body,
+        );
+
+        const resp = await fetch(`http://localhost:${port}/webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-zm-request-timestamp': timestamp,
+            'x-zm-signature': signature,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Unexpected status ${resp.status}`);
+        }
+
+        const data = await resp.json();
+        if (data.status !== 'ignored') {
+          throw new Error(`Expected { status: "ignored" }, got: ${JSON.stringify(data)}`);
+        }
+
+        console.log('✓ Non-recording event correctly returned { status: "ignored" }');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        server.close();
+      }
+    });
+    server.on('error', reject);
+  });
+}
 
 async function run() {
-  // ── Test 1: Deepgram pre-recorded STT works with transcribeUrl ──
-  console.log('Test 1: Deepgram pre-recorded STT (nova-3)...');
-
-  const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
-
-  const data = await deepgram.listen.v1.media.transcribeUrl({
-    url: KNOWN_AUDIO_URL,
-    model: 'nova-3',
-    smart_format: true,
-    diarize: true,
-    paragraphs: true,
-    tag: 'deepgram-examples',
-  });
-
-  const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
-
-  if (!transcript || transcript.length < 20) {
-    throw new Error(`Transcript too short or empty: "${transcript}"`);
-  }
-
-  const lower = transcript.toLowerCase();
-  const found = EXPECTED_WORDS.filter(w => lower.includes(w));
-  if (found.length === 0) {
-    throw new Error(
-      `Expected words not found in transcript.\nGot: "${transcript.substring(0, 200)}"`
-    );
-  }
-
-  console.log(`✓ Transcript received (${transcript.length} chars)`);
-  console.log(`✓ Expected content verified (found: ${found.join(', ')})`);
-
-  // ── Test 2: Zoom OAuth token retrieval ──
-  console.log('\nTest 2: Zoom OAuth token retrieval...');
-
-  const credentials = Buffer.from(
-    `${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`
-  ).toString('base64');
-
-  const tokenResp = await fetch(
-    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${process.env.ZOOM_ACCOUNT_ID}`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Basic ${credentials}` },
-    }
-  );
-
-  if (!tokenResp.ok) {
-    throw new Error(`Zoom OAuth failed: ${tokenResp.status} ${await tokenResp.text()}`);
-  }
-
-  const tokenData = await tokenResp.json();
-  if (!tokenData.access_token) {
-    throw new Error('No access_token in Zoom OAuth response');
-  }
-
-  console.log('✓ Zoom OAuth token retrieved successfully');
-
-  // ── Test 3: Webhook validation logic ──
-  console.log('\nTest 3: Webhook signature validation logic...');
-
-  const crypto = require('crypto');
-  const testToken = 'test-plain-token';
-  const hash = crypto
-    .createHmac('sha256', process.env.ZOOM_WEBHOOK_SECRET_TOKEN)
-    .update(testToken)
-    .digest('hex');
-
-  if (!hash || hash.length !== 64) {
-    throw new Error('HMAC hash generation failed');
-  }
-
-  console.log('✓ Webhook validation HMAC logic works');
+  await testServerStarts();
+  await testHealthEndpoint();
+  await testWebhookUrlValidation();
+  await testWebhookSignatureRejection();
+  await testWebhookValidSignatureIgnoredEvent();
 }
 
 run()

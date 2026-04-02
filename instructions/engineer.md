@@ -167,6 +167,51 @@ response = client.listen.v1.media.transcribe_url(
 - `1` — real failure (code bug, assertion error)
 - `2` — missing credentials (expected; CI handles gracefully)
 
+> ⛔ **Tests MUST exercise the example's own src/ code — not just the Deepgram SDK.**
+> Creating a standalone `DeepgramClient()` in a test and calling `transcribeUrl()` directly
+> is NOT a test of the example. It is a test that Deepgram's API works. Tests must import
+> from `src/` and call the actual functions, endpoints, or classes the example provides.
+
+**How to structure tests by example type:**
+
+```
+REST API (FastAPI, Express, NestJS, Django, etc.)
+  → Spin up the actual server in-process using TestClient / supertest / httpx
+  → Make real HTTP requests to the example's endpoints
+  → Assert on the response shape and content
+
+WebSocket server (Twilio, Vonage, LiveKit bridge, etc.)
+  → Import createApp() or equivalent from src/
+  → Start the server in-process
+  → Connect a WebSocket client and stream test audio
+  → Assert the server receives transcripts and handles them correctly
+
+Library / tool (LangChain tool, LlamaIndex loader, CrewAI agent, etc.)
+  → Import the function/class from src/
+  → Call it with real inputs
+  → Assert on the output
+
+Bot (Discord, Slack, Telegram, WhatsApp, etc.)
+  → The bot's core logic MUST be exported as testable functions from src/
+    e.g. export processAudio(buffer), handleMessage(msg), transcribeAttachment(url)
+  → Tests import and call those exported functions
+  → Do NOT rely solely on testing that the bot client initialises — test what it does
+
+CLI / script
+  → If the script is just a wrapper, refactor it to export a main() function
+  → Test calls main() with a known audio URL/file and asserts on the output
+
+Desktop / mobile (Electron, Tauri, React Native, Swift, Kotlin)
+  → Test the backend/server portions that CAN run headlessly
+  → Test all helper functions in src/ that don't require a running UI
+  → File structure and syntax checks are acceptable supplements, not replacements
+```
+
+**What is NEVER acceptable:**
+- A test that creates `new DeepgramClient()` itself and calls SDK methods without going through src/
+- A test that only checks `require('../src/...')` doesn't throw (import-only test)
+- A test that only checks third-party dependencies import cleanly
+
 ```javascript
 // Node.js test template
 'use strict';

@@ -91,6 +91,25 @@ async function transcribeAttachment(deepgram, attachment) {
   return transcript;
 }
 
+/**
+ * Download audio from a public URL and transcribe it via Deepgram nova-3.
+ *
+ * This is the testable entry point: it accepts a plain URL and API key rather
+ * than a Discord attachment object, so tests can call it without a bot connection.
+ *
+ * @param {string} url    - Publicly accessible audio URL to download and transcribe.
+ * @param {string} apiKey - Deepgram API key.
+ * @returns {Promise<string|null>} Transcript text, or null if no speech detected.
+ */
+async function transcribeUrl(url, apiKey) {
+  const deepgram = new DeepgramClient({ apiKey });
+  // Reuse the internal transcribeAttachment helper by passing a minimal
+  // attachment-shaped object — the only field it uses is `url`.
+  return transcribeAttachment(deepgram, { url });
+}
+
+module.exports = { transcribeUrl };
+
 async function main() {
   if (!process.env.DEEPGRAM_API_KEY) {
     console.error('Error: DEEPGRAM_API_KEY is not set.');

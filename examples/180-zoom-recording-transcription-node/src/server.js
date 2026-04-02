@@ -16,66 +16,74 @@ const REQUIRED_ENV = [
   'ZOOM_WEBHOOK_SECRET_TOKEN',
 ];
 
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    console.error(`Error: ${key} environment variable is not set.`);
-    console.error('Copy .env.example to .env and add your credentials.');
-    process.exit(1);
-  }
+/**
+ * Create and configure the Express application.
+ *
+ * Separating app creation from app.listen() makes the server testable —
+ * tests can import createApp() and exercise routes without binding a port.
+ *
+ * @returns {import('express').Application} Configured Express app.
+ */
+function createApp() {
+  const webhookSecret = process.env.ZOOM_WEBHOOK_SECRET_TOKEN;
+
+  // SDK v5: constructor takes an options object, not a bare string.
+  const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
+
+  const app = express();
+  app.use(express.json());
+
+  // ── Zoom webhook endpoint ────────────────────────────────────────────────────
+  // Zoom sends two event types here:
+  //   1. endpoint.url_validation — a challenge/response handshake when you first
+  //      register the webhook URL in the Zoom Marketplace.
+  //   2. recording.completed — fired when a cloud recording finishes processing.
+  app.post('/webhook', async (req, res) => {
+    const { event, payload } = req.body;
+
+    // ← THIS handles Zoom's webhook URL validation handshake.
+    // Zoom POSTs a plainToken that must be hashed with your secret and returned.
+    if (event === 'endpoint.url_validation') {
+      const hashForValidation = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(req.body.payload.plainToken)
+        .digest('hex');
+
+      return res.json({
+        plainToken: req.body.payload.plainToken,
+        encryptedToken: hashForValidation,
+      });
+    }
+
+    // Verify webhook signature to ensure the request came from Zoom.
+    const message = `v0:${req.headers['x-zm-request-timestamp']}:${JSON.stringify(req.body)}`;
+    const expectedSig = `v0=${crypto
+      .createHmac('sha256', webhookSecret)
+      .update(message)
+      .digest('hex')}`;
+
+    if (req.headers['x-zm-signature'] !== expectedSig) {
+      console.error('Invalid webhook signature — rejecting request');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    if (event !== 'recording.completed') {
+      return res.json({ status: 'ignored', event });
+    }
+
+    res.json({ status: 'processing' });
+
+    try {
+      await handleRecordingCompleted(payload, deepgram);
+    } catch (err) {
+      console.error('Error processing recording:', err.message);
+    }
+  });
+
+  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+  return app;
 }
-
-// SDK v5: constructor takes an options object, not a bare string.
-const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
-
-const app = express();
-app.use(express.json());
-
-// ── Zoom webhook endpoint ────────────────────────────────────────────────────
-// Zoom sends two event types here:
-//   1. endpoint.url_validation — a challenge/response handshake when you first
-//      register the webhook URL in the Zoom Marketplace.
-//   2. recording.completed — fired when a cloud recording finishes processing.
-app.post('/webhook', async (req, res) => {
-  const { event, payload } = req.body;
-
-  // ← THIS handles Zoom's webhook URL validation handshake.
-  // Zoom POSTs a plainToken that must be hashed with your secret and returned.
-  if (event === 'endpoint.url_validation') {
-    const hashForValidation = crypto
-      .createHmac('sha256', process.env.ZOOM_WEBHOOK_SECRET_TOKEN)
-      .update(req.body.payload.plainToken)
-      .digest('hex');
-
-    return res.json({
-      plainToken: req.body.payload.plainToken,
-      encryptedToken: hashForValidation,
-    });
-  }
-
-  // Verify webhook signature to ensure the request came from Zoom.
-  const message = `v0:${req.headers['x-zm-request-timestamp']}:${JSON.stringify(req.body)}`;
-  const expectedSig = `v0=${crypto
-    .createHmac('sha256', process.env.ZOOM_WEBHOOK_SECRET_TOKEN)
-    .update(message)
-    .digest('hex')}`;
-
-  if (req.headers['x-zm-signature'] !== expectedSig) {
-    console.error('Invalid webhook signature — rejecting request');
-    return res.status(401).json({ error: 'Invalid signature' });
-  }
-
-  if (event !== 'recording.completed') {
-    return res.json({ status: 'ignored', event });
-  }
-
-  res.json({ status: 'processing' });
-
-  try {
-    await handleRecordingCompleted(payload);
-  } catch (err) {
-    console.error('Error processing recording:', err.message);
-  }
-});
 
 // ── Zoom OAuth ───────────────────────────────────────────────────────────────
 // Server-to-Server OAuth uses client_credentials grant with account_id.
@@ -102,7 +110,7 @@ async function getZoomAccessToken() {
 }
 
 // ── Recording handler ────────────────────────────────────────────────────────
-async function handleRecordingCompleted(payload) {
+async function handleRecordingCompleted(payload, deepgram) {
   const { object } = payload;
   const meetingTopic = object.topic || 'Untitled Meeting';
 
@@ -166,12 +174,22 @@ async function handleRecordingCompleted(payload) {
   return { meetingTopic, transcript };
 }
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+module.exports = { createApp, getZoomAccessToken, handleRecordingCompleted };
 
-app.listen(PORT, () => {
-  console.log(`Zoom recording transcription server running on port ${PORT}`);
-  console.log(`Webhook endpoint: POST http://localhost:${PORT}/webhook`);
-  console.log(`Health check:     GET  http://localhost:${PORT}/health`);
-});
+// Run directly: node src/server.js
+if (require.main === module) {
+  for (const key of REQUIRED_ENV) {
+    if (!process.env[key]) {
+      console.error(`Error: ${key} environment variable is not set.`);
+      console.error('Copy .env.example to .env and add your credentials.');
+      process.exit(1);
+    }
+  }
 
-module.exports = { app, getZoomAccessToken, handleRecordingCompleted };
+  const app = createApp();
+  app.listen(PORT, () => {
+    console.log(`Zoom recording transcription server running on port ${PORT}`);
+    console.log(`Webhook endpoint: POST http://localhost:${PORT}/webhook`);
+    console.log(`Health check:     GET  http://localhost:${PORT}/health`);
+  });
+}

@@ -28,34 +28,25 @@ if (missing.length > 0) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// SDK v5: DeepgramClient (class) replaces createClient() (function) from v3/v4.
-const { DeepgramClient } = require('@deepgram/sdk');
+// Import the exported function from the example's own source.
+// This verifies the example code path works end-to-end, not just the SDK.
+const { transcribe } = require('../src/index.js');
 
-// A stable Deepgram-hosted audio file with a known transcript.
-// Using dpgr.am links keeps the test deterministic — they won't disappear
-// the way a random third-party URL might.
+// A stable Deepgram-hosted audio file used in Deepgram docs.
+// dpgr.am links are long-lived and won't disappear like third-party URLs.
 const KNOWN_AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
 
-// Words that appear in the spacewalk recording. We check for at least one
-// rather than an exact match because:
-//   - Minor model updates can change punctuation and capitalisation
-//   - smart_format may reformat some terms over time
-// An exact transcript assertion would be a brittle, maintenance-heavy test.
-const EXPECTED_WORDS = ['spacewalk', 'astronaut', 'nasa'];
+// spacewalk.wav is ~33 seconds. At >= 2 chars/second the transcript should
+// be at least 66 characters — a simple sanity check that real speech was
+// returned, not an empty or near-empty result.
+const MIN_CHARS = 66;
 
 async function run() {
-  // SDK v5: options object, not a positional string.
-  const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
+  console.log('Testing transcribe() from src/index.js...');
 
-  console.log('Testing Deepgram pre-recorded STT (nova-3)...');
-
-  // SDK v5: all options are flat in a single object.
-  // SDK v5: throws on error — use try/catch, not { result, error } destructuring.
-  const data = await deepgram.listen.v1.media.transcribeUrl({
-    url: KNOWN_AUDIO_URL,
-    model: 'nova-3',
-    smart_format: true,
-    tag: 'deepgram-examples',
+  // Call the actual example function — exercises the src/ code path.
+  const data = await transcribe(KNOWN_AUDIO_URL, {
+    apiKey: process.env.DEEPGRAM_API_KEY,
   });
 
   // Defensive optional chaining — if the response shape ever changes,
@@ -63,24 +54,13 @@ async function run() {
   // at the exact path that changed, not a cryptic downstream error.
   const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
 
-  if (!transcript || transcript.length < 20) {
+  if (!transcript || transcript.length < MIN_CHARS) {
     // A very short transcript usually means the model returned empty results,
     // which can happen with silent audio or a corrupted source file.
-    throw new Error(`Transcript too short or empty: "${transcript}"`);
+    throw new Error(`Transcript too short or empty (got ${transcript?.length ?? 0} chars, want >= ${MIN_CHARS}): "${transcript}"`);
   }
 
-  const lower = transcript.toLowerCase();
-  const found = EXPECTED_WORDS.filter(w => lower.includes(w));
-  if (found.length === 0) {
-    // This would mean the model returned a plausible-looking transcript that
-    // doesn't contain any of the expected words — worth investigating manually.
-    throw new Error(
-      `Expected words not found in transcript.\nGot: "${transcript.substring(0, 200)}"`
-    );
-  }
-
-  console.log(`✓ Transcript received (${transcript.length} chars)`);
-  console.log(`✓ Expected content verified (found: ${found.join(', ')})`);
+  console.log(`✓ transcribe() returned a transcript (${transcript.length} chars)`);
   console.log(`  Preview: "${transcript.substring(0, 100)}..."`);
 }
 

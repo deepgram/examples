@@ -142,6 +142,10 @@ Check:
 - [ ] Every Deepgram API call includes `tag: "deepgram-examples"` (JS) or `tag="deepgram-examples"` (Python)
 - [ ] No hardcoded credentials
 - [ ] Error handling covers main failure cases
+- [ ] Tests import from `src/` and call the example's actual code — NOT a standalone DeepgramClient test
+- [ ] If it's a server: test spins it up and makes real HTTP/WebSocket requests to it
+- [ ] If it's a library/tool: test imports and calls the exported functions
+- [ ] If it's a bot: src/ exports testable helper functions; tests call those
 - [ ] Transcript assertions use length/duration proportionality — NOT specific word lists (transcription is non-deterministic; word lists cause flaky tests)
 - [ ] README: what you'll build, all env vars with where-to-get links, run instructions
 - [ ] `.env.example` present and complete

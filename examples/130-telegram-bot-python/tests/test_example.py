@@ -7,6 +7,10 @@ from pathlib import Path
 #   0 = all tests passed
 #   1 = real test failure (code bug, assertion error, unexpected API response)
 #   2 = missing credentials (expected in CI until secrets are configured)
+#
+# Note: TELEGRAM_BOT_TOKEN is listed in .env.example because it is needed to
+# run the bot, but we only need DEEPGRAM_API_KEY to exercise the core
+# transcription logic tested here.
 env_example = Path(__file__).parent.parent / ".env.example"
 required = [
     line.split("=")[0].strip()
@@ -19,35 +23,38 @@ if missing:
     sys.exit(2)
 # ────────────────────────────────────────────────────────────────────────────
 
-from deepgram import DeepgramClient
+# Add src/ to the path so we can import from the example's own module.
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from bot import transcribe_voice
 
 
-def test_deepgram_stt():
-    """Verify the Deepgram API key works and nova-3 returns a transcript.
+# spacewalk.wav is ~33 seconds of clear speech.
+# At >= 2 chars/second the transcript should be at least 66 characters.
+AUDIO_URL = "https://dpgr.am/spacewalk.wav"
+AUDIO_DURATION_SECONDS = 33
+MIN_CHARS = AUDIO_DURATION_SECONDS * 2
 
-    This exercises the same SDK call the bot uses (transcribe_file with raw
-    bytes) but against a known-good WAV so we don't need a Telegram token
-    for the core STT integration test.
+
+def test_transcribe_voice():
+    """Verify transcribe_voice() from src/bot.py downloads audio and returns a transcript.
+
+    Calls the exported function directly — exercises the src/ code path without
+    needing a real Telegram bot token or running bot process.
     """
-    client = DeepgramClient()
+    print(f"Testing transcribe_voice() from src/bot.py...")
+    print(f"Audio: {AUDIO_URL}")
 
-    response = client.listen.v1.media.transcribe_url(
-        url="https://dpgr.am/spacewalk.wav",
-        model="nova-3",
-        smart_format=True,
-        tag="deepgram-examples",
+    transcript = transcribe_voice(AUDIO_URL, os.environ["DEEPGRAM_API_KEY"])
+
+    assert transcript is not None, "transcribe_voice() returned None — no speech detected"
+    assert len(transcript) >= MIN_CHARS, (
+        f"Transcript too short (got {len(transcript)} chars, want >= {MIN_CHARS}): '{transcript}'"
     )
-    transcript = response.results.channels[0].alternatives[0].transcript
-    assert len(transcript) > 10, "Transcript too short"
 
-    lower = transcript.lower()
-    expected = ["spacewalk", "astronaut", "nasa"]
-    found = [w for w in expected if w in lower]
-    assert len(found) > 0, f"Expected keywords not found in: {transcript[:200]}"
-
-    print("✓ Deepgram STT integration working")
-    print(f"  Transcript preview: '{transcript[:80]}...'")
+    print(f"  transcribe_voice() returned a transcript ({len(transcript)} chars)")
+    print(f"  Preview: '{transcript[:80]}...'")
 
 
 if __name__ == "__main__":
-    test_deepgram_stt()
+    test_transcribe_voice()
+    print("\n✓ All tests passed")

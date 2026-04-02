@@ -11,6 +11,7 @@ Requires DEEPGRAM_API_KEY and TELEGRAM_BOT_TOKEN in the environment
 
 import logging
 import os
+import urllib.request
 from io import BytesIO
 
 from dotenv import load_dotenv
@@ -36,6 +37,49 @@ logging.basicConfig(
 # python-telegram-bot uses httpx internally — silence its noisy debug logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def transcribe_voice(file_path_or_url: str, api_key: str) -> str | None:
+    """Download audio from a file path or public URL and transcribe via Deepgram.
+
+    This is the testable entry point: accepts a plain path/URL and API key so
+    tests can call it without a running Telegram bot.
+
+    Args:
+        file_path_or_url: Local file path or publicly accessible audio URL.
+        api_key: Deepgram API key.
+
+    Returns:
+        Transcript text, or None if no speech was detected.
+    """
+    # Load audio bytes from path or URL.
+    if file_path_or_url.startswith("http://") or file_path_or_url.startswith("https://"):
+        with urllib.request.urlopen(file_path_or_url) as resp:
+            audio_bytes = resp.read()
+    else:
+        with open(file_path_or_url, "rb") as f:
+            audio_bytes = f.read()
+
+    if not audio_bytes:
+        return None
+
+    client = DeepgramClient(api_key)
+
+    # SDK v5 Python: transcribe_file() accepts raw bytes.
+    # Deepgram auto-detects the audio format from the file header.
+    # nova-3 is the current flagship model (2025). For phone-call
+    # audio use nova-3-phonecall; for medical dictation use nova-3-medical.
+    response = client.listen.v1.media.transcribe_file(
+        audio_bytes,
+        model="nova-3",
+        # smart_format adds punctuation, capitalisation, and paragraph
+        # breaks. Adds ~10 ms latency — almost always worth enabling.
+        smart_format=True,
+        tag="deepgram-examples",
+    )
+
+    transcript = response.results.channels[0].alternatives[0].transcript
+    return transcript if transcript else None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

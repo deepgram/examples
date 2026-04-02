@@ -100,6 +100,27 @@ async function transcribeBuffer(deepgram, buffer) {
   return transcript;
 }
 
+/**
+ * Download audio from a public URL and transcribe it via Deepgram nova-3.
+ *
+ * This is the testable entry point: it accepts a plain URL and API key rather
+ * than a Slack file object, so tests can call it without a Slack workspace
+ * connection.
+ *
+ * @param {string} fileUrl - Publicly accessible audio URL to download and transcribe.
+ * @param {string} apiKey  - Deepgram API key.
+ * @returns {Promise<string|null>} Transcript text, or null if no speech detected.
+ */
+async function transcribeAudio(fileUrl, apiKey) {
+  const deepgram = new DeepgramClient({ apiKey });
+  // downloadSlackFile works with any URL — no Slack token needed for public URLs.
+  // Pass an empty string for the token; it won't be used when the URL is public.
+  const buffer = await downloadSlackFile(fileUrl, '');
+  return transcribeBuffer(deepgram, buffer);
+}
+
+module.exports = { transcribeAudio };
+
 async function main() {
   // Fail fast with clear messages rather than cryptic SDK errors.
   const required = ['DEEPGRAM_API_KEY', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'];

@@ -8,6 +8,10 @@ const path = require('path');
 //   0 = all tests passed
 //   1 = real test failure (code bug, assertion error, unexpected API response)
 //   2 = missing credentials (expected in CI until secrets are configured)
+//
+// Note: SLACK_BOT_TOKEN and SLACK_APP_TOKEN are listed in .env.example because
+// they are needed to run the bot, but we only need DEEPGRAM_API_KEY to exercise
+// the core transcription logic tested here.
 const envExample = path.join(__dirname, '..', '.env.example');
 const required = fs.readFileSync(envExample, 'utf8')
   .split('\n')
@@ -21,67 +25,39 @@ if (missing.length > 0) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// We can't run the full Slack bot in CI (it needs a real workspace connection),
-// but we CAN verify:
-//   1. Deepgram API key works for STT (pre-recorded file transcription)
-//   2. @slack/bolt is installed and importable
+// Import the exported function from the example's own source.
+// This exercises the bot's core logic without needing a Slack workspace connection.
+const { transcribeAudio } = require('../src/bot.js');
 
-const { DeepgramClient } = require('@deepgram/sdk');
-
-const KNOWN_AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
-const EXPECTED_WORDS = ['spacewalk', 'astronaut', 'nasa'];
-
-async function testDeepgramSTT() {
-  console.log('Testing Deepgram pre-recorded STT (nova-3)...');
-
-  const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
-
-  // SDK v5: flat single options object, throws on error.
-  const data = await deepgram.listen.v1.media.transcribeUrl({
-    url: KNOWN_AUDIO_URL,
-    model: 'nova-3',
-    smart_format: true,
-    tag: 'deepgram-examples',
-  });
-
-  const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
-
-  if (!transcript || transcript.length < 20) {
-    throw new Error(`Transcript too short or empty: "${transcript}"`);
-  }
-
-  const lower = transcript.toLowerCase();
-  const found = EXPECTED_WORDS.filter(w => lower.includes(w));
-  if (found.length === 0) {
-    throw new Error(`Expected words not found in: "${transcript.substring(0, 200)}"`);
-  }
-
-  console.log(`  Transcript received (${transcript.length} chars)`);
-  console.log(`  Expected content verified (found: ${found.join(', ')})`);
-}
-
-function testSlackBoltInstalled() {
-  // Verify @slack/bolt is installed and importable — catches missing
-  // npm install or incompatible Node.js version.
-  console.log('Testing @slack/bolt import...');
-  const { App } = require('@slack/bolt');
-  if (!App) {
-    throw new Error('@slack/bolt App export missing');
-  }
-  console.log('  @slack/bolt loaded successfully');
-}
+// spacewalk.wav is ~33 seconds of clear speech.
+// At >= 2 chars/second the transcript should be at least 66 characters.
+const AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
+const AUDIO_DURATION_SECONDS = 33;
+const MIN_CHARS = AUDIO_DURATION_SECONDS * 2;
 
 async function run() {
-  testSlackBoltInstalled();
-  await testDeepgramSTT();
+  console.log('Testing transcribeAudio() from src/bot.js...');
+  console.log(`Audio: ${AUDIO_URL}`);
+
+  // Call the exported function — exercises the src/ download + transcription path.
+  const transcript = await transcribeAudio(AUDIO_URL, process.env.DEEPGRAM_API_KEY);
+
+  if (!transcript || transcript.length < MIN_CHARS) {
+    throw new Error(
+      `Transcript too short (got ${transcript?.length ?? 0} chars, want >= ${MIN_CHARS}): "${transcript}"`
+    );
+  }
+
+  console.log(`✓ transcribeAudio() returned a transcript (${transcript.length} chars)`);
+  console.log(`  Preview: "${transcript.substring(0, 100)}..."`);
 }
 
 run()
   .then(() => {
-    console.log('\nAll tests passed');
+    console.log('\n✓ All tests passed');
     process.exit(0);
   })
   .catch(err => {
-    console.error(`\nTest failed: ${err.message}`);
+    console.error(`\n✗ Test failed: ${err.message}`);
     process.exit(1);
   });
