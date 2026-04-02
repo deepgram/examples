@@ -279,12 +279,97 @@ jobs:
                            || echo "has_failures=false" >> $GITHUB_OUTPUT
           echo "failed_examples=${FAILED}" >> $GITHUB_OUTPUT
 
+  # ── SDK version audit ───────────────────────────────────────────────────────
+  # Checks every merged example for outdated Deepgram SDK pins.
+  # Uses the public GitHub releases API — no auth required.
+  # Major-version gaps are flagged (e.g. pinned v4 when latest is v6).
+  sdk-audit:
+    runs-on: ubuntu-latest
+    outputs:
+      outdated_examples: ${{ steps.scan.outputs.outdated }}
+      has_outdated: ${{ steps.scan.outputs.has_outdated }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest SDK versions
+        id: versions
+        run: |
+          latest_major() {
+            curl -sf "https://api.github.com/repos/deepgram/$1/releases/latest" \
+              | jq -r '.tag_name // "0"' | tr -d 'v' | cut -d. -f1
+          }
+          echo "python=$(latest_major deepgram-python-sdk)" >> $GITHUB_OUTPUT
+          echo "js=$(latest_major deepgram-js-sdk)"          >> $GITHUB_OUTPUT
+          echo "go=$(latest_major deepgram-go-sdk)"          >> $GITHUB_OUTPUT
+          echo "java=$(latest_major deepgram-java-sdk)"      >> $GITHUB_OUTPUT
+          echo "rust=$(latest_major deepgram-rust-sdk)"      >> $GITHUB_OUTPUT
+          echo "dotnet=$(latest_major deepgram-dotnet-sdk)"  >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+
+      - name: Scan examples for outdated SDK pins
+        id: scan
+        run: |
+          PY_LATEST="${{ steps.versions.outputs.python }}"
+          JS_LATEST="${{ steps.versions.outputs.js }}"
+          GO_LATEST="${{ steps.versions.outputs.go }}"
+          JAVA_LATEST="${{ steps.versions.outputs.java }}"
+          RUST_LATEST="${{ steps.versions.outputs.rust }}"
+          DOTNET_LATEST="${{ steps.versions.outputs.dotnet }}"
+
+          OUTDATED=""
+
+          for dir in examples/*/; do
+            [ ! -d "$dir" ] && continue
+
+            # Python — deepgram-sdk==X or >=X
+            if [ -f "${dir}requirements.txt" ]; then
+              PINNED=$(grep -oE 'deepgram-sdk[^,\n]*' "${dir}requirements.txt" \
+                | grep -oE '[0-9]+' | head -1 || true)
+              if [ -n "$PINNED" ] && [ "$PINNED" -lt "$PY_LATEST" ] 2>/dev/null; then
+                echo "OUTDATED Python $dir: pinned major=$PINNED latest=$PY_LATEST"
+                OUTDATED="$OUTDATED $dir"
+              fi
+            fi
+
+            # JavaScript/TypeScript — @deepgram/sdk: "^X.y.z" or "X.y.z"
+            if [ -f "${dir}package.json" ]; then
+              PINNED=$(jq -r '
+                ((.dependencies // {}) + (.devDependencies // {}))["@deepgram/sdk"]
+                // empty' "${dir}package.json" \
+                | grep -oE '[0-9]+' | head -1 || true)
+              if [ -n "$PINNED" ] && [ "$PINNED" -lt "$JS_LATEST" ] 2>/dev/null; then
+                echo "OUTDATED JS $dir: pinned major=$PINNED latest=$JS_LATEST"
+                OUTDATED="$OUTDATED $dir"
+              fi
+            fi
+
+            # Go — github.com/deepgram/deepgram-go-sdk/vX
+            if [ -f "${dir}go.mod" ]; then
+              PINNED=$(grep -oE 'deepgram-go-sdk/v[0-9]+' "${dir}go.mod" \
+                | grep -oE '[0-9]+' | head -1 || true)
+              if [ -n "$PINNED" ] && [ "$PINNED" -lt "$GO_LATEST" ] 2>/dev/null; then
+                echo "OUTDATED Go $dir: pinned major=v$PINNED latest=v$GO_LATEST"
+                OUTDATED="$OUTDATED $dir"
+              fi
+            fi
+          done
+
+          OUTDATED=$(echo "$OUTDATED" | xargs | tr ' ' '\n' | sort -u | xargs)
+          if [ -n "$OUTDATED" ]; then
+            echo "has_outdated=true"  >> $GITHUB_OUTPUT
+            echo "outdated=$OUTDATED" >> $GITHUB_OUTPUT
+            echo "Examples with outdated SDKs: $OUTDATED"
+          else
+            echo "has_outdated=false" >> $GITHUB_OUTPUT
+            echo "outdated="          >> $GITHUB_OUTPUT
+            echo "All SDK pins are current"
+          fi
+
   # ── Report failures + fix (one at a time) ──────────────────────────────────
-  # Pick the first failing example that has no open fix PR, open one issue for
-  # it, and run the fix agent for that single example only. Each subsequent
-  # test-existing run advances the queue by one.
+  # Pick the first failing or outdated example that has no open fix PR.
+  # Test failures take priority over SDK version upgrades.
   report:
-    needs: [node, python, go, java]
+    needs: [node, python, go, java, sdk-audit]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -301,12 +386,20 @@ jobs:
         id: date
         run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
+      - name: Fetch latest Deepgram SDK versions
+        id: sdk
+        run: |
+          latest() { curl -sf "https://api.github.com/repos/deepgram/$1/releases/latest" | jq -r '.tag_name // "unknown"'; }
+          echo "python=$(latest deepgram-python-sdk)" >> $GITHUB_OUTPUT
+          echo "js=$(latest deepgram-js-sdk)"          >> $GITHUB_OUTPUT
+          echo "go=$(latest deepgram-go-sdk)"          >> $GITHUB_OUTPUT
+
       - name: Pick first unaddressed failure
         id: collect
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Flatten all failures into a space-separated list of example dirs
+          # Test failures first (higher priority), then outdated SDK pins
           ALL_FAILED=""
           [ "${{ needs.node.outputs.has_failures }}"   = "true" ] && \
             ALL_FAILED="$ALL_FAILED ${{ needs.node.outputs.failed_examples }}"
@@ -316,6 +409,9 @@ jobs:
             ALL_FAILED="$ALL_FAILED ${{ needs.go.outputs.failed_examples }}"
           [ "${{ needs.java.outputs.has_failures }}"   = "true" ] && \
             ALL_FAILED="$ALL_FAILED ${{ needs.java.outputs.failed_examples }}"
+          # Append outdated-SDK examples after test failures (lower priority)
+          [ "${{ needs.sdk-audit.outputs.has_outdated }}" = "true" ] && \
+            ALL_FAILED="$ALL_FAILED ${{ needs.sdk-audit.outputs.outdated_examples }}"
           ALL_FAILED=$(echo "$ALL_FAILED" | xargs | tr ' ' '\n' | sort -u | xargs)
 
           TARGET=""
@@ -382,13 +478,16 @@ jobs:
           model: claude-opus-4-6
           allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
           direct_prompt: |
-            One regression detected in a merged example. Fix it.
-            Failing example: ${{ steps.collect.outputs.target }}
+            A merged example needs attention — either a test regression or an outdated SDK pin.
+            Example: ${{ steps.collect.outputs.target }}
 
-            1. Read the example's source and tests
-            2. Search Kapa for current correct SDK usage (instructions/kapa-search.md)
-            3. Identify the root cause (outdated SDK, deprecated API, dependency change)
-            4. Fix the code
+            1. Read the example's source, tests, and dependency files
+            2. Check if the issue is a test failure, an outdated SDK version, or both
+            3. Search Kapa for current correct SDK usage (instructions/kapa-search.md)
+            4. Fix the code and upgrade SDK pins to the required versions:
+               - Python:     deepgram-sdk==${{ steps.sdk.outputs.python }}
+               - JavaScript: @deepgram/sdk@${{ steps.sdk.outputs.js }}
+               - Go:         ${{ steps.sdk.outputs.go }}
             5. Open or update a PR — one PR per example, additive:
                - Check for an existing open PR whose branch starts with fix/${{ steps.collect.outputs.slug }}:
                  EXISTING=$(gh pr list --state open --search "fix ${{ steps.collect.outputs.slug }}" --json number,headRefName --jq '.[0]')
