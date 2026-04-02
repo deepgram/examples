@@ -31,6 +31,7 @@ const AGENT_SETTINGS = {
       provider: {
         type: 'deepgram',
         model: 'nova-3',
+        tag: 'deepgram-examples',
       },
     },
     think: {
