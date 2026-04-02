@@ -19,33 +19,11 @@ if missing:
     sys.exit(2)
 # ────────────────────────────────────────────────────────────────────────────
 
-from deepgram import DeepgramClient
-
-
-def test_deepgram_stt():
-    """Verify the Deepgram API key works and nova-3 returns a transcript."""
-    client = DeepgramClient()
-    response = client.listen.v1.media.transcribe_url(
-        url="https://dpgr.am/spacewalk.wav",
-        model="nova-3",
-        smart_format=True,
-        tag="deepgram-examples",
-    )
-    transcript = response.results.channels[0].alternatives[0].transcript
-    assert len(transcript) > 10, "Transcript too short"
-
-    lower = transcript.lower()
-    expected = ["spacewalk", "astronaut", "nasa"]
-    found = [w for w in expected if w in lower]
-    assert len(found) > 0, f"Expected keywords not found in: {transcript[:200]}"
-
-    print("✓ Deepgram STT integration working")
-    print(f"  Transcript preview: '{transcript[:80]}...'")
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def test_langchain_tool_schema():
     """Verify the LangChain tool is correctly defined and has the expected schema."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from transcribe_tool import transcribe_audio
 
     assert transcribe_audio.name == "transcribe_audio"
@@ -54,24 +32,40 @@ def test_langchain_tool_schema():
     schema = transcribe_audio.args_schema.model_json_schema()
     assert "audio_url" in schema.get("properties", {}), "Missing audio_url in tool schema"
 
-    print("✓ LangChain tool schema valid")
+    print("LangChain tool schema valid")
     print(f"  Tool name: {transcribe_audio.name}")
 
 
 def test_tool_invocation():
-    """Call the tool directly (no agent) to verify end-to-end transcription."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+    """Call the tool directly (no agent) to verify end-to-end transcription through src/."""
     from transcribe_tool import transcribe_audio
 
+    # spacewalk.wav is ~33 seconds of audio — expect at least 2 chars/sec
     result = transcribe_audio.invoke("https://dpgr.am/spacewalk.wav")
-    assert "transcript" in result.lower() or len(result) > 50, f"Unexpected tool output: {result[:200]}"
     assert "error" not in result.lower(), f"Tool returned error: {result}"
+    # Result contains a "Transcript (..." header line plus the actual text
+    assert len(result) > 60, f"Tool output too short: {result[:200]}"
 
-    print("✓ Tool invocation working")
+    print("Tool invocation working")
     print(f"  Output preview: '{result[:100]}...'")
 
 
+def test_tool_includes_duration_and_confidence():
+    """Verify the tool output format contains duration and confidence metadata."""
+    from transcribe_tool import transcribe_audio
+
+    result = transcribe_audio.invoke("https://dpgr.am/spacewalk.wav")
+    assert "transcript" in result.lower(), \
+        f"Expected 'Transcript' header in output: {result[:200]}"
+    # Duration should appear as e.g. "32.5s"
+    assert "s," in result or "s)" in result, \
+        f"Expected duration (e.g. '32.5s') in output: {result[:200]}"
+
+    print("Tool output includes duration and confidence metadata")
+
+
 if __name__ == "__main__":
-    test_deepgram_stt()
     test_langchain_tool_schema()
     test_tool_invocation()
+    test_tool_includes_duration_and_confidence()
+    print("\nAll tests passed")

@@ -10,22 +10,21 @@ require('dotenv').config();
 // the rest of your code stays the same.
 const { deepgram } = require('@ai-sdk/deepgram');
 const {
-  experimental_transcribe: transcribe,
-  experimental_generateSpeech: generateSpeech,
+  experimental_transcribe: sdkTranscribe,
+  experimental_generateSpeech: sdkGenerateSpeech,
 } = require('ai');
 const fs = require('fs');
 const path = require('path');
 
 const AUDIO_URL = process.env.AUDIO_URL || 'https://dpgr.am/spacewalk.wav';
 
-async function main() {
-  if (!process.env.DEEPGRAM_API_KEY) {
-    console.error('Error: DEEPGRAM_API_KEY environment variable is not set.');
-    console.error('Copy .env.example to .env and add your API key.');
-    process.exit(1);
-  }
-
-  // ── Part 1: Transcription ─────────────────────────────────────────────────
+/**
+ * Transcribe an audio URL using Deepgram via the Vercel AI SDK.
+ *
+ * @param {string} url - Public URL of an audio file
+ * @returns {Promise<import('ai').TranscriptionResult>} AI SDK transcript object
+ */
+async function transcribe(url) {
   // transcribe() is provider-agnostic.  deepgram.transcription('nova-3') tells
   // the AI SDK to route this request through Deepgram's pre-recorded STT API.
   // You could replace it with openai.transcription('whisper-1') and the rest
@@ -36,11 +35,9 @@ async function main() {
   // the bytes to Deepgram — Deepgram's own transcribeUrl() is more efficient
   // for URLs because Deepgram fetches directly, but the AI SDK approach gives
   // you provider portability.
-  console.log(`Transcribing: ${AUDIO_URL}\n`);
-
-  const transcript = await transcribe({
+  return sdkTranscribe({
     model: deepgram.transcription('nova-3'),
-    audio: new URL(AUDIO_URL),
+    audio: new URL(url),
     // providerOptions lets you pass Deepgram-specific settings that aren't
     // part of the AI SDK's universal interface.  smart_format adds punctuation
     // and number formatting; summarize returns a one-paragraph summary.
@@ -50,6 +47,47 @@ async function main() {
       },
     },
   });
+}
+
+/**
+ * Synthesise speech from text using Deepgram via the Vercel AI SDK.
+ *
+ * @param {string} text - Text to convert to speech
+ * @returns {Promise<import('ai').SpeechResult>} AI SDK speech object with audio bytes
+ */
+async function speak(text) {
+  // generateSpeech() is the TTS counterpart.  deepgram.speech('aura-2-helena-en')
+  // routes through Deepgram's Aura TTS API.  The result contains audio as both
+  // a Uint8Array and a base64 string — pick whichever is convenient.
+  //
+  // aura-2-helena-en is a natural-sounding female English voice.  Other voices:
+  //   aura-2-thalia-en, aura-2-luna-en, aura-2-asteria-en, etc.
+  // Full list: https://developers.deepgram.com/docs/tts-models
+  return sdkGenerateSpeech({
+    model: deepgram.speech('aura-2-helena-en'),
+    text,
+    providerOptions: {
+      deepgram: {
+        // linear16 is raw PCM — easier to inspect and pipe to other tools.
+        // Default is mp3 which is smaller but harder to validate programmatically.
+        encoding: 'linear16',
+        sample_rate: 24000,
+      },
+    },
+  });
+}
+
+async function main() {
+  if (!process.env.DEEPGRAM_API_KEY) {
+    console.error('Error: DEEPGRAM_API_KEY environment variable is not set.');
+    console.error('Copy .env.example to .env and add your API key.');
+    process.exit(1);
+  }
+
+  // ── Part 1: Transcription ─────────────────────────────────────────────────
+  console.log(`Transcribing: ${AUDIO_URL}\n`);
+
+  const transcript = await transcribe(AUDIO_URL);
 
   console.log('── Transcript ──────────────────────────────────');
   console.log(transcript.text);
@@ -73,24 +111,11 @@ async function main() {
   // generateSpeech() is the TTS counterpart.  deepgram.speech('aura-2-helena-en')
   // routes through Deepgram's Aura TTS API.  The result contains audio as both
   // a Uint8Array and a base64 string — pick whichever is convenient.
-  //
-  // aura-2-helena-en is a natural-sounding female English voice.  Other voices:
-  //   aura-2-thalia-en, aura-2-luna-en, aura-2-asteria-en, etc.
-  // Full list: https://developers.deepgram.com/docs/tts-models
   console.log('\n── Text-to-Speech ──────────────────────────────');
 
-  const speech = await generateSpeech({
-    model: deepgram.speech('aura-2-helena-en'),
-    text: 'The Vercel AI SDK makes it easy to integrate Deepgram speech services into any Node.js application.',
-    providerOptions: {
-      deepgram: {
-        // linear16 is raw PCM — easier to inspect and pipe to other tools.
-        // Default is mp3 which is smaller but harder to validate programmatically.
-        encoding: 'linear16',
-        sample_rate: 24000,
-      },
-    },
-  });
+  const speech = await speak(
+    'The Vercel AI SDK makes it easy to integrate Deepgram speech services into any Node.js application.'
+  );
 
   const outDir = path.join(__dirname, '..', 'output');
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
@@ -104,7 +129,11 @@ async function main() {
   console.log(`  Play:  ffplay -f s16le -ar 24000 -ac 1 ${outPath}`);
 }
 
-main().catch(err => {
-  console.error('Error:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Error:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { transcribe, speak };

@@ -62,10 +62,13 @@ function createTray() {
 }
 
 // ── Deepgram live connection ────────────────────────────────────────────────
-async function startDeepgramConnection() {
-  if (dgConnection) return;
 
-  dgConnection = await deepgram.listen.v1.connect({
+/**
+ * Returns the Deepgram live connection options used by this app.
+ * Exported so tests can validate the configuration without connecting.
+ */
+function getDeepgramConnectionOptions() {
+  return {
     model: 'nova-3',
     encoding: 'linear16',
     sample_rate: 16000,
@@ -75,7 +78,15 @@ async function startDeepgramConnection() {
     utterance_end_ms: 1500,
     punctuate: true,
     tag: 'deepgram-examples',
-  });
+  };
+}
+
+async function startDeepgramConnection() {
+  if (dgConnection) return;
+
+  dgConnection = await deepgram.listen.v1.connect(
+    getDeepgramConnectionOptions()
+  );
 
   dgConnection.on('open', () => {
     console.log('[deepgram] Connection opened');
@@ -162,4 +173,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-module.exports = { startDeepgramConnection, stopDeepgramConnection };
+module.exports = { startDeepgramConnection, stopDeepgramConnection, getDeepgramConnectionOptions };

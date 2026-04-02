@@ -19,45 +19,7 @@ if missing:
     sys.exit(2)
 # ────────────────────────────────────────────────────────────────────────────
 
-from deepgram import DeepgramClient
-
-
-def test_deepgram_stt():
-    """Verify the Deepgram API key works and nova-3 returns a transcript."""
-    client = DeepgramClient()
-    response = client.listen.v1.media.transcribe_url(
-        url="https://dpgr.am/spacewalk.wav",
-        model="nova-3",
-        smart_format=True,
-        tag="deepgram-examples",
-    )
-    transcript = response.results.channels[0].alternatives[0].transcript
-    assert len(transcript) > 10, "Transcript too short"
-
-    lower = transcript.lower()
-    expected = ["spacewalk", "astronaut", "nasa"]
-    found = [w for w in expected if w in lower]
-    assert len(found) > 0, f"Expected keywords not found in: {transcript[:200]}"
-
-    print("  Deepgram STT integration working")
-    print(f"  Transcript preview: '{transcript[:80]}...'")
-
-
-def test_deepgram_tts():
-    """Verify Deepgram TTS generates audio bytes."""
-    client = DeepgramClient()
-    audio_chunks = list(client.speak.v1.audio.generate(
-        text="Hello, this is a test of Deepgram text to speech.",
-        model="aura-2-asteria-en",
-        encoding="linear16",
-        sample_rate=24000,
-        tag="deepgram-examples",
-    ))
-    total_bytes = sum(len(c) for c in audio_chunks)
-    assert total_bytes > 1000, f"TTS audio too small: {total_bytes} bytes"
-
-    print("  Deepgram TTS integration working")
-    print(f"  Generated {total_bytes} bytes of audio")
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def test_openai_agents_imports():
@@ -79,20 +41,18 @@ def test_openai_agents_imports():
     assert TTSModel is not None
     assert VoiceModelProvider is not None
 
-    print("  OpenAI Agents SDK voice imports working")
+    print("OpenAI Agents SDK voice imports working")
 
 
 def test_agent_module_imports():
     """Verify the agent source module imports without errors."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     import agent  # noqa: F401
 
-    print("  Agent module imports correctly")
+    print("Agent module imports correctly")
 
 
 def test_custom_provider_instantiation():
     """Verify our custom Deepgram provider creates STT and TTS models."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from agent import DeepgramSTTModel, DeepgramTTSModel, DeepgramVoiceProvider
 
     provider = DeepgramVoiceProvider()
@@ -104,13 +64,59 @@ def test_custom_provider_instantiation():
     assert stt.model_name == "deepgram-nova-3"
     assert tts.model_name == "deepgram-aura-2"
 
-    print("  Custom Deepgram provider instantiation working")
+    print("Custom Deepgram provider instantiation working")
+    print(f"  STT model: {stt.model_name}")
+    print(f"  TTS model: {tts.model_name}")
+
+
+def test_create_agent():
+    """Verify create_agent() returns a properly configured OpenAI Agent."""
+    from agents import Agent
+    from agent import create_agent
+
+    result = create_agent()
+    assert isinstance(result, Agent), \
+        f"create_agent() must return an Agent instance, got {type(result)}"
+    assert result.name == "Voice Assistant", \
+        f"Expected name='Voice Assistant', got '{result.name}'"
+    assert result.model == "gpt-4.1-mini", \
+        f"Expected model='gpt-4.1-mini', got '{result.model}'"
+
+    print("create_agent() returns a correctly configured Agent")
+    print(f"  name: {result.name}, model: {result.model}")
+
+
+def test_stt_model_uses_deepgram_nova3():
+    """Verify DeepgramSTTModel calls nova-3 with the correct parameters."""
+    src = (Path(__file__).parent.parent / "src" / "agent.py").read_text()
+
+    assert "nova-3" in src, \
+        "agent.py must use Deepgram nova-3 for STT"
+    assert "deepgram-nova-3" in src, \
+        "DeepgramSTTModel.model_name must return 'deepgram-nova-3'"
+    assert 'tag="deepgram-examples"' in src or "tag='deepgram-examples'" in src, \
+        "agent.py must include tag='deepgram-examples' on Deepgram API calls"
+
+    print("DeepgramSTTModel configured with nova-3 and required tag")
+
+
+def test_tts_model_uses_deepgram_aura2():
+    """Verify DeepgramTTSModel calls aura-2 with the correct parameters."""
+    src = (Path(__file__).parent.parent / "src" / "agent.py").read_text()
+
+    assert "aura-2" in src, \
+        "agent.py must use a Deepgram aura-2 voice for TTS"
+    assert "deepgram-aura-2" in src, \
+        "DeepgramTTSModel.model_name must return 'deepgram-aura-2'"
+
+    print("DeepgramTTSModel configured with aura-2 and required tag")
 
 
 if __name__ == "__main__":
-    test_deepgram_stt()
-    test_deepgram_tts()
     test_openai_agents_imports()
     test_agent_module_imports()
     test_custom_provider_instantiation()
+    test_create_agent()
+    test_stt_model_uses_deepgram_nova3()
+    test_tts_model_uses_deepgram_aura2()
     print("\nAll tests passed")

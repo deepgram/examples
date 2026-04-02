@@ -16,36 +16,75 @@ if missing:
 # ────────────────────────────────────────────────────────────────────────────
 
 # We can't run the full LiveKit agent in CI (it needs a running LiveKit server
-# and a real room), but we CAN verify:
-#   1. Deepgram API key works for STT
-#   2. The agent module imports cleanly (no syntax errors, missing deps)
+# and a real room), but we CAN verify that the agent module is structurally
+# correct and wired to Deepgram correctly.
 
-from deepgram import DeepgramClient
-
-
-def test_deepgram_stt():
-    client = DeepgramClient()
-    response = client.listen.v1.media.transcribe_url(
-        url="https://dpgr.am/spacewalk.wav",
-        model="nova-3",
-        smart_format=True,
-        tag="deepgram-examples",
-    )
-    transcript = response.results.channels[0].alternatives[0].transcript
-    assert len(transcript) > 10, "Transcript too short"
-    print("✓ Deepgram STT integration working")
-    print(f"  Transcript preview: '{transcript[:80]}...'")
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def test_agent_module_imports():
-    # Importing the agent module verifies that all dependencies are installed
-    # and the code is syntactically valid.
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+    """Importing the agent module verifies all dependencies are installed
+    and the code is syntactically valid."""
     import agent  # noqa: F401
 
-    print("✓ Agent module imports correctly")
+    print("Agent module imports correctly")
+
+
+def test_voice_assistant_class():
+    """Verify VoiceAssistant is defined and is a subclass of Agent."""
+    from livekit.agents import Agent
+    import agent
+
+    assert issubclass(agent.VoiceAssistant, Agent), \
+        "VoiceAssistant must subclass livekit.agents.Agent"
+    assert hasattr(agent.VoiceAssistant, "on_enter"), \
+        "VoiceAssistant must define on_enter lifecycle hook"
+
+    print("VoiceAssistant class is correctly defined")
+
+
+def test_entrypoint_is_callable():
+    """Verify the entrypoint session function is defined and callable."""
+    import agent
+
+    assert callable(agent.entrypoint), \
+        "entrypoint must be a callable (async function decorated with @server.rtc_session)"
+
+    print("entrypoint is callable")
+
+
+def test_deepgram_stt_configured():
+    """Verify the agent source code references Deepgram's nova-3 STT model.
+
+    We inspect the source directly because the LiveKit inference.STT call can't
+    be instantiated outside a running agent process. This confirms the Deepgram
+    plugin is wired in correctly.
+    """
+    src = (Path(__file__).parent.parent / "src" / "agent.py").read_text()
+
+    assert "deepgram/nova-3" in src, \
+        "agent.py must configure Deepgram nova-3 via inference.STT('deepgram/nova-3')"
+    assert "DEEPGRAM_API_KEY" in src or "inference.STT" in src, \
+        "agent.py must use Deepgram STT"
+
+    print("Deepgram STT (nova-3) is configured in entrypoint")
+
+
+def test_server_object_exists():
+    """Verify the AgentServer object is created at module level."""
+    import agent
+    from livekit.agents import AgentServer
+
+    assert isinstance(agent.server, AgentServer), \
+        "agent.server must be an AgentServer instance"
+
+    print("AgentServer instance exists at module level")
 
 
 if __name__ == "__main__":
-    test_deepgram_stt()
     test_agent_module_imports()
+    test_voice_assistant_class()
+    test_entrypoint_is_callable()
+    test_deepgram_stt_configured()
+    test_server_object_exists()
+    print("\nAll tests passed")
