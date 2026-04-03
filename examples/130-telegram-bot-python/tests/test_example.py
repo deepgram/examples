@@ -8,15 +8,10 @@ from pathlib import Path
 #   1 = real test failure (code bug, assertion error, unexpected API response)
 #   2 = missing credentials (expected in CI until secrets are configured)
 #
-# Note: TELEGRAM_BOT_TOKEN is listed in .env.example because it is needed to
-# run the bot, but we only need DEEPGRAM_API_KEY to exercise the core
-# transcription logic tested here.
-env_example = Path(__file__).parent.parent / ".env.example"
-required = [
-    line.split("=")[0].strip()
-    for line in env_example.read_text().splitlines()
-    if line and not line.startswith("#") and "=" in line and line[0].isupper()
-]
+# Only DEEPGRAM_API_KEY is needed for the transcription tests below.
+# TELEGRAM_BOT_TOKEN is required to *run* the bot but not to test the
+# core transcribe_voice() function we exercise here.
+required = ["DEEPGRAM_API_KEY"]
 missing = [k for k in required if not os.environ.get(k)]
 if missing:
     print(f"MISSING_CREDENTIALS: {','.join(missing)}", file=sys.stderr)
