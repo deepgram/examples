@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/deepgram": "^2.0.0",
-    "@deepgram/sdk": "^3.11.0",
+    "@deepgram/sdk": "^5.0.0",
     "ai": "^6.0.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
