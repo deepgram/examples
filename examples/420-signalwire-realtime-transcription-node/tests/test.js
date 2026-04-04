@@ -1,18 +1,12 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const http = require('http');
 const { execSync } = require('child_process');
 const WebSocket = require('ws');
 
 // ── Credential check ─────────────────────────────────────────────────────────
-const envExample = path.join(__dirname, '..', '.env.example');
-const required = fs.readFileSync(envExample, 'utf8')
-  .split('\n')
-  .filter(l => /^[A-Z][A-Z0-9_]+=/.test(l.trim()))
-  .map(l => l.split('=')[0].trim());
-
+const required = ['DEEPGRAM_API_KEY'];
 const missing = required.filter(k => !process.env[k]);
 if (missing.length > 0) {
   console.error(`MISSING_CREDENTIALS: ${missing.join(',')}`);
