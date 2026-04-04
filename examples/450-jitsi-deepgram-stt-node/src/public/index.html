@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jitsi Meet + Deepgram Transcription</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #eee; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    #jitsi-container { flex: 1; min-height: 0; }
+    #jitsi-container iframe { width: 100%; height: 100%; border: none; }
+    #transcript-panel {
+      height: 200px; overflow-y: auto; padding: 12px 16px;
+      background: #1a1a2e; border-top: 2px solid #16213e;
+      font-size: 14px; line-height: 1.6;
+    }
+    #transcript-panel .final { color: #e0e0e0; }
+    #transcript-panel .interim { color: #888; font-style: italic; }
+    #controls { padding: 8px 16px; background: #16213e; display: flex; align-items: center; gap: 12px; }
+    #controls button {
+      padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;
+      font-size: 14px; font-weight: 600;
+    }
+    #btn-start { background: #0f3460; color: #eee; }
+    #btn-start:hover { background: #1a4a80; }
+    #btn-stop { background: #533483; color: #eee; }
+    #btn-stop:hover { background: #6b44a0; }
+    #status { font-size: 13px; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="jitsi-container"></div>
+    <div id="controls">
+      <button id="btn-start">Start Transcription</button>
+      <button id="btn-stop" disabled>Stop Transcription</button>
+      <span id="status">Click "Start Transcription" after joining the meeting.</span>
+    </div>
+    <div id="transcript-panel"></div>
+  </div>
+
+  <script src="https://meet.jit.si/external_api.js"></script>
+  <script>
+    const panel = document.getElementById('transcript-panel');
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+    const statusEl = document.getElementById('status');
+
+    let jitsiApi = null;
+    let ws = null;
+    let audioCtx = null;
+    let workletNode = null;
+    let mediaStream = null;
+
+    // Jitsi IFrame API — join the room as soon as the page loads.
+    // The server provides domain + room via /config so we don't
+    // duplicate env values in client code.
+    async function initJitsi() {
+      const res = await fetch('/config');
+      const cfg = await res.json();
+
+      const domain = cfg.jitsiDomain;
+      const roomName = cfg.roomName;
+
+      jitsiApi = new JitsiMeetExternalAPI(domain, {
+        roomName,
+        parentNode: document.getElementById('jitsi-container'),
+        configOverwrite: {
+          startWithAudioMuted: false,
+          startWithVideoMuted: true,
+          disableDeepLinking: true,
+        },
+        interfaceConfigOverwrite: {
+          TOOLBAR_BUTTONS: [
+            'microphone', 'camera', 'desktop', 'chat',
+            'raisehand', 'hangup', 'tileview',
+          ],
+        },
+      });
+
+      jitsiApi.addListener('videoConferenceJoined', () => {
+        statusEl.textContent = 'Joined meeting. Click "Start Transcription" to begin.';
+      });
+
+      jitsiApi.addListener('videoConferenceLeft', () => {
+        stopTranscription();
+        statusEl.textContent = 'Left meeting.';
+      });
+    }
+
+    // Capture audio output from the Jitsi IFrame using
+    // getDisplayMedia (tab capture) or the conference audio stream,
+    // then pipe 16-bit PCM at 16 kHz to the server via WebSocket.
+    async function startTranscription() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/transcribe`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = async () => {
+        statusEl.textContent = 'Connected to transcription server. Capturing audio…';
+
+        try {
+          // getUserMedia captures the local microphone — same audio
+          // that Jitsi is sending to the conference.  For capturing
+          // ALL participants, the user would use getDisplayMedia with
+          // audio (screen/tab capture), but getUserMedia is the most
+          // broadly compatible path.
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          statusEl.textContent = 'Microphone access denied. Cannot transcribe.';
+          ws.close();
+          return;
+        }
+
+        audioCtx = new AudioContext({ sampleRate: 16000 });
+        const source = audioCtx.createMediaStreamSource(mediaStream);
+
+        // ScriptProcessorNode is deprecated but universally supported.
+        // An AudioWorklet version would be cleaner for production use.
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          const float32 = e.inputBuffer.getChannelData(0);
+          const int16 = new Int16Array(float32.length);
+          for (let i = 0; i < float32.length; i++) {
+            const s = Math.max(-1, Math.min(1, float32[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          ws.send(int16.buffer);
+        };
+
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        statusEl.textContent = 'Transcribing…';
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+      };
+
+      ws.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        const el = document.createElement('div');
+        el.className = msg.type;
+        el.textContent = msg.transcript;
+
+        // Replace previous interim line with updated text, append
+        // final lines permanently.
+        const prev = panel.querySelector('.interim');
+        if (msg.type === 'interim') {
+          if (prev) { prev.textContent = msg.transcript; }
+          else { panel.appendChild(el); }
+        } else {
+          if (prev) prev.remove();
+          panel.appendChild(el);
+        }
+        panel.scrollTop = panel.scrollHeight;
+      };
+
+      ws.onclose = () => {
+        statusEl.textContent = 'Transcription stopped.';
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+      };
+
+      ws.onerror = () => {
+        statusEl.textContent = 'WebSocket error — check server logs.';
+      };
+    }
+
+    function stopTranscription() {
+      if (workletNode) { workletNode.disconnect(); workletNode = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (ws) { ws.close(); ws = null; }
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+    }
+
+    btnStart.addEventListener('click', startTranscription);
+    btnStop.addEventListener('click', stopTranscription);
+
+    initJitsi();
+  </script>
+</body>
+</html>
