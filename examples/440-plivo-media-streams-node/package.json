@@ -1,0 +1,21 @@
+{
+  "name": "deepgram-plivo-media-streams",
+  "version": "1.0.0",
+  "description": "Transcribe Plivo phone calls in real-time using Deepgram live STT via audio streaming",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "5.0.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-ws": "^5.0.2",
+    "plivo": "^4.71.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
