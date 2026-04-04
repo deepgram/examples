@@ -26,7 +26,7 @@ const {
   experimental_transcribe: transcribe,
   experimental_generateSpeech: generateSpeech,
 } = require('ai');
-const { createClient } = require('@deepgram/sdk');
+const { DeepgramClient } = require('@deepgram/sdk');
 
 const KNOWN_AUDIO_URL = 'https://dpgr.am/spacewalk.wav';
 const EXPECTED_WORDS = ['spacewalk', 'astronaut', 'nasa'];
@@ -82,13 +82,13 @@ async function run() {
   console.log(`  OK  TTS (${speech.audio.uint8Array.length} bytes linear16)`);
 
   // ── Test 3: Deepgram SDK project access ────────────────────────────────
-  // The app's /api/deepgram-key route uses manage.getProjects() +
-  // keys.createKey() to mint temporary browser keys.  Verify project
-  // access works with the configured API key.
+  // The app's /api/deepgram-key route uses manage.v1.projects.list() +
+  // manage.v1.projects.keys.create() to mint temporary browser keys.
+  // Verify project access works with the configured API key.
   console.log('Test 3: Deepgram SDK project access (for temp key creation)...');
 
-  const client = createClient(process.env.DEEPGRAM_API_KEY);
-  const { result: projectsResult } = await client.manage.getProjects();
+  const client = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
+  const projectsResult = await client.manage.v1.projects.list();
 
   if (!projectsResult.projects || projectsResult.projects.length === 0) {
     throw new Error('No Deepgram projects found — API key may lack manage scope');
