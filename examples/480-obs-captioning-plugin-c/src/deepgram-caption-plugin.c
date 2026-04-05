@@ -154,6 +154,19 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **pp = (unsigned char **)in;
+		unsigned char *pe = (*pp) + len;
+		char auth_val[300];
+		snprintf(auth_val, sizeof(auth_val), "Token %s", st->api_key);
+		if (lws_add_http_header_by_name(lws_get_context(wsi),
+				(const unsigned char *)"Authorization:",
+				(const unsigned char *)auth_val,
+				(int)strlen(auth_val), pp, pe))
+			return -1;
+		break;
+	}
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		st->ws_conn = NULL;
@@ -186,10 +199,6 @@ static void *ws_thread_fn(void *arg)
 	if (!st->ws_ctx)
 		return NULL;
 
-	/* Build the auth header Deepgram requires */
-	char auth_hdr[300];
-	snprintf(auth_hdr, sizeof(auth_hdr), "Token %s", st->api_key);
-
 	struct lws_client_connect_info conn_info;
 	memset(&conn_info, 0, sizeof(conn_info));
 	conn_info.context       = st->ws_ctx;
@@ -200,21 +209,6 @@ static void *ws_thread_fn(void *arg)
 	conn_info.origin        = DG_HOST;
 	conn_info.protocol      = protocols[0].name;
 	conn_info.ssl_connection = LCCSCF_USE_SSL;
-
-	/* Custom headers — Deepgram uses "Authorization: Token <key>" */
-	char custom_hdr[512];
-	snprintf(custom_hdr, sizeof(custom_hdr),
-		 "Authorization: %s\r\n", auth_hdr);
-
-	unsigned char hdr_buf[512 + LWS_PRE];
-	unsigned char *p = hdr_buf + LWS_PRE;
-	unsigned char *end = hdr_buf + sizeof(hdr_buf) - 1;
-	if (lws_add_http_header_by_name(st->ws_ctx,
-					(const unsigned char *)"Authorization:",
-					(const unsigned char *)auth_hdr,
-					(int)strlen(auth_hdr), &p, end) == 0) {
-		/* Headers built successfully */
-	}
 
 	st->ws_conn = lws_client_connect_via_info(&conn_info);
 
