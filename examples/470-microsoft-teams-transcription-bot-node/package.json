@@ -18,5 +18,10 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": ">=1.15.0"
+    }
   }
 }
