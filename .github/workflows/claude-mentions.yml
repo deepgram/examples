@@ -18,7 +18,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Respond
         if: steps.auth.outputs.allowed == 'true'
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
         env:
           KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
           KAPA_PROJECT_ID: ${{ vars.KAPA_PROJECT_ID }}

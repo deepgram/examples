@@ -1,7 +1,7 @@
 name: Notify docs — new example ready
 
 # When a new example PR merges to main, create a [Suggestion] issue in deepgram-docs
-# so the content-pm workflow can queue a tutorial guide for it.
+# so the content-pm workflow can research and queue a tutorial guide for it.
 #
 # Required secrets:
 #   DOCS_PAT — PAT with issues:write scope on deepgram/deepgram-docs
@@ -18,14 +18,16 @@ jobs:
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.title, '[Example]')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           ref: main
 
-      - name: Find merged example and create suggestion
+      - name: Create guide suggestion in deepgram-docs
         env:
           GH_TOKEN: ${{ secrets.DOCS_PAT }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -34,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find the example directory added by this PR
+          # Find the example directory added or modified by this PR
           EXAMPLE_DIR=$(git diff --name-only HEAD~1 HEAD \
             | grep '^examples/' \
             | head -1 \
@@ -48,16 +50,9 @@ jobs:
           SLUG=$(basename "$EXAMPLE_DIR")
           echo "Example slug: $SLUG"
 
-          # Read the example README for title and description
+          # Read the example README for title
           README_TITLE=$(head -3 "$EXAMPLE_DIR/README.md" 2>/dev/null \
             | grep '^#' | head -1 | sed 's/^# *//' || echo "$SLUG")
-
-          # Check it's marked passing in the README table
-          PASSING=$(grep -F "$SLUG" README.md | grep -c "✅ passing" || true)
-          if [ "$PASSING" -eq 0 ]; then
-            echo "Example not yet marked passing — skipping"
-            exit 0
-          fi
 
           # Create suggestion issue in deepgram-docs
           gh issue create \

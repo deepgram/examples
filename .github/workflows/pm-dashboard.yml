@@ -18,7 +18,7 @@ jobs:
       statuses: write
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -27,15 +27,15 @@ jobs:
           git config user.name "examples-bot"
           git config user.email "noreply@deepgram.com"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.22'
 
@@ -56,7 +56,7 @@ jobs:
 
       - name: Run dashboard agent
         if: steps.existing.outputs.skip == 'false'
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
         env:
           KAPA_API_KEY: ${{ secrets.KAPA_API_KEY }}
           KAPA_PROJECT_ID: ${{ vars.KAPA_PROJECT_ID }}
