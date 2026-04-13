@@ -1,0 +1,489 @@
+name: Engineering Pipeline
+
+# Unified pipeline for all engineering work in this repo.
+#
+# build      — triggered by type:suggestion label, cron sweep, or dispatch.
+#              Plans, builds, and tests new/modified examples in a Docker
+#              sandbox with a neurosymbolic agent loop. PRs are opened for
+#              human review before anything merges.
+#
+# engineering — triggered when a Deepgram org member @mentions @claude in any
+#              issue or PR comment. Full unrestricted access to the entire repo.
+#              Acts on the request, commits if needed, and replies in the thread.
+#
+# Both jobs gate on Deepgram org membership before spending any AI budget.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  schedule:
+    - cron: '0 */4 * * *'  # Every 4 hours — sweep for unprocessed suggestions
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process (leave blank for auto-discovery)'
+        required: false
+
+jobs:
+
+  # ── Build: create or modify examples from issue suggestions ─────────────────
+  build:
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'type:suggestion') ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    concurrency:
+      group: build-${{ github.event.issue.number || 'sweep' }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # ------------------------------------------------------------------
+      # 1. Resolve which issue to work on
+      #    - label event    → use the triggering issue
+      #    - dispatch+input → use the provided issue number
+      #    - schedule/bare dispatch → auto-discover oldest unprocessed suggestion
+      # ------------------------------------------------------------------
+      - name: Resolve issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EVENT="${{ github.event_name }}"
+          INPUT_NUM="${{ inputs.issue_number }}"
+
+          if [ "$EVENT" = "issues" ]; then
+            number="${{ github.event.issue.number }}"
+          elif [ -n "$INPUT_NUM" ]; then
+            number="$INPUT_NUM"
+          else
+            # Auto-discover: oldest open type:suggestion with no build started yet.
+            # <!-- pr-opened --> is injected into the issue comment when a PR is
+            # opened, so its presence means a build is already in progress or done.
+            result=$(gh issue list \
+              --label "type:suggestion" \
+              --state open \
+              --json number \
+              --limit 50 | python3 -c "
+import json, sys, subprocess
+
+issues = json.load(sys.stdin)
+numbers = [i['number'] for i in reversed(issues)]  # oldest first
+
+for num in numbers:
+    r = subprocess.run(
+        ['gh', 'issue', 'view', str(num),
+         '--repo', '${{ github.repository }}',
+         '--json', 'comments'],
+        capture_output=True, text=True
+    )
+    comments = json.loads(r.stdout).get('comments', [])
+    if any('<!-- pr-opened -->' in c.get('body', '') for c in comments):
+        continue  # build already started or completed
+    print(json.dumps({'number': num}))
+    break
+else:
+    print('SKIP')
+")
+            if [ "$result" = "SKIP" ] || [ -z "$result" ]; then
+              echo "No unprocessed suggestions found."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            number=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
+          fi
+
+          # Fetch author, body, and labels in one call
+          issue_json=$(gh issue view "$number" --json author,body,labels)
+          author=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['author']['login'])")
+          body=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['body'])")
+          has_suggestion=$(echo "$issue_json" | python3 -c "
+import json, sys
+labels = {l['name'] for l in json.load(sys.stdin)['labels']}
+print('true' if 'type:suggestion' in labels else 'false')
+")
+
+          # ------------------------------------------------------------------
+          # Authz: build if any of the following are true:
+          #   1. Author is a bot (automated suggestions)
+          #   2. Author is a Deepgram org member
+          #   3. Issue carries the type:suggestion label — only users with write
+          #      access can apply labels, so its presence means an org member
+          #      has explicitly approved this external issue for building.
+          #      This is the manual approval path for non-org-member issues.
+          # ------------------------------------------------------------------
+          if [[ "$author" != *"[bot]"* ]] && [[ "$has_suggestion" != "true" ]]; then
+            http_line=$(gh api "orgs/deepgram/members/${author}" -i 2>/dev/null | head -1)
+            if ! echo "$http_line" | grep -q "204"; then
+              echo "Issue #${number} author '${author}' is not a Deepgram org member and has no label approval. Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          # Multiline body — use unique heredoc delimiter
+          echo "body<<ISSUE_BODY_EOF" >> "$GITHUB_OUTPUT"
+          echo "$body" >> "$GITHUB_OUTPUT"
+          echo "ISSUE_BODY_EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if nothing to build
+        if: steps.issue.outputs.skip == 'true'
+        run: echo "Skipping — no eligible issue to build."
+
+      # ------------------------------------------------------------------
+      # 2. Extract secret names (not values) from the secrets context
+      # ------------------------------------------------------------------
+      - name: Extract secret names
+        id: secret_names
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          echo "$ALL_SECRETS" | python3 -c "
+          import json, sys
+          names = list(json.load(sys.stdin).keys())
+          # Strip the auto-injected GitHub token — agent doesn't need it
+          names = [n for n in names if n.upper() not in ('GITHUB_TOKEN',)]
+          print(','.join(names))
+          " > /tmp/secret_names.txt
+          echo "names=$(cat /tmp/secret_names.txt)" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 3. Determine next example number (used only if action=new)
+      # ------------------------------------------------------------------
+      - name: Determine example number
+        id: example_number
+        if: steps.issue.outputs.skip != 'true'
+        run: |
+          number=$(python3 .github/scripts/next_example_number.py \
+            --examples-dir examples)
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 4. Install Python dependencies
+      # ------------------------------------------------------------------
+      - name: Install Python dependencies
+        if: steps.issue.outputs.skip != 'true'
+        run: pip install anthropic --quiet
+
+      # ------------------------------------------------------------------
+      # 5. Planning phase — detect runtime, slug, action, required secrets
+      # ------------------------------------------------------------------
+      - name: Plan example
+        id: plan
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_BODY: ${{ steps.issue.outputs.body }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          EXAMPLE_NUMBER: ${{ steps.example_number.outputs.number }}
+          SECRET_NAMES: ${{ steps.secret_names.outputs.names }}
+          EXAMPLES_DIR: ${{ github.workspace }}/examples
+        run: |
+          plan=$(python3 .github/scripts/plan_agent.py)
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+          # Extract fields for subsequent steps
+          echo "action=$(echo "$plan" | python3 -c "import json,sys; print(json.load(sys.stdin).get('action','new'))")" >> "$GITHUB_OUTPUT"
+          echo "runtime=$(echo "$plan" | python3 -c "import json,sys; print(json.load(sys.stdin)['runtime'])")" >> "$GITHUB_OUTPUT"
+          echo "slug=$(echo "$plan" | python3 -c "import json,sys; print(json.load(sys.stdin)['slug'])")" >> "$GITHUB_OUTPUT"
+          echo "docker_image=$(echo "$plan" | python3 -c "import json,sys; print(json.load(sys.stdin)['docker_image'])")" >> "$GITHUB_OUTPUT"
+          echo "required_secrets=$(echo "$plan" | python3 -c "import json,sys; print(','.join(json.load(sys.stdin)['required_secrets']))")" >> "$GITHUB_OUTPUT"
+          # workspace_subdir is NNN-slug for new, existing dir name for modify
+          echo "workspace_subdir=$(echo "$plan" | python3 -c "import json,sys; print(json.load(sys.stdin)['workspace_subdir'])")" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 6. Build filtered env file (only required secrets, values injected)
+      # ------------------------------------------------------------------
+      - name: Build sandbox env file
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          REQUIRED_SECRETS: ${{ steps.plan.outputs.required_secrets }}
+        run: |
+          python3 .github/scripts/filter_secrets.py \
+            --required "$REQUIRED_SECRETS" \
+            --secrets-json "$ALL_SECRETS" \
+            > /tmp/sandbox.env
+
+          echo "Env file written with $(wc -l < /tmp/sandbox.env) secrets"
+
+      # ------------------------------------------------------------------
+      # 7. Pull Docker image
+      # ------------------------------------------------------------------
+      - name: Pull sandbox image
+        if: steps.issue.outputs.skip != 'true'
+        run: docker pull ${{ steps.plan.outputs.docker_image }}
+
+      # ------------------------------------------------------------------
+      # 8. Run the agent build loop
+      # ------------------------------------------------------------------
+      - name: Run agent
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_BODY: ${{ steps.issue.outputs.body }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          EXAMPLE_NUMBER: ${{ steps.example_number.outputs.number }}
+          EXAMPLE_SLUG: ${{ steps.plan.outputs.slug }}
+          WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
+          DOCKER_IMAGE: ${{ steps.plan.outputs.docker_image }}
+          WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
+          EXAMPLES_DIR: ${{ github.workspace }}/examples
+          BUILD_LOG: /tmp/build-log.md
+        run: python3 .github/scripts/run_agent.py
+
+      # ------------------------------------------------------------------
+      # 9. Commit the output to a branch
+      # ------------------------------------------------------------------
+      - name: Commit and push example branch
+        id: branch
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
+          WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          if [ "$WORKSPACE_ACTION" = "modify" ]; then
+            branch="example/update-${WORKSPACE_SUBDIR}"
+            commit_subject="update ${WORKSPACE_SUBDIR}"
+          else
+            branch="example/${WORKSPACE_SUBDIR}"
+            commit_subject="add ${WORKSPACE_SUBDIR}"
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$branch"
+          git add "examples/${WORKSPACE_SUBDIR}/"
+
+          git commit -m "feat(examples): ${commit_subject}
+
+          Relates to #${ISSUE_NUMBER}"
+
+          git push origin "$branch"
+
+      # ------------------------------------------------------------------
+      # 10. Open the PR
+      # ------------------------------------------------------------------
+      - name: Open pull request
+        id: pr
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
+          RUNTIME: ${{ steps.plan.outputs.runtime }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
+        run: |
+          if [ "$WORKSPACE_ACTION" = "modify" ]; then
+            pr_title="feat(examples): update ${WORKSPACE_SUBDIR}"
+            action_label="Updated"
+          else
+            pr_title="feat(examples): add ${WORKSPACE_SUBDIR}"
+            action_label="New"
+          fi
+
+          body_file=$(mktemp)
+          {
+            printf "Closes #%s\n\n" "$ISSUE_NUMBER"
+            printf "Auto-generated from issue suggestion by the engineering pipeline.\n\n"
+            printf "**Action:** %s\n" "$action_label"
+            printf "**Runtime:** \`%s\`\n" "$RUNTIME"
+            printf "**Example:** \`%s\`\n\n" "$WORKSPACE_SUBDIR"
+            printf -- "---\n\n## Build log\n\n"
+            head -c 60000 /tmp/build-log.md 2>/dev/null || printf "No build log found.\n"
+          } > "$body_file"
+
+          url=$(gh pr create \
+            --title "$pr_title" \
+            --body-file "$body_file" \
+            --base main \
+            --label "type:example" \
+            --label "automated")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 11. Comment on the issue linking the PR
+      # ------------------------------------------------------------------
+      - name: Comment on issue
+        if: steps.issue.outputs.skip != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body: `✅ Example built and PR opened: ${process.env.PR_URL}\n\nReview the PR before merging.\n\n<!-- pr-opened -->`,
+            });
+
+      # ------------------------------------------------------------------
+      # Cleanup on failure
+      # ------------------------------------------------------------------
+      - name: Comment on issue (failure)
+        if: failure() && steps.issue.outputs.skip != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body: `❌ Build failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.`,
+            });
+
+
+  # ── Engineering: act on @claude mentions anywhere in the repo ───────────────
+  engineering:
+    if: |
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.issue.html_url, '/pull/') && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    concurrency:
+      group: engineering-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      # ------------------------------------------------------------------
+      # Auth: commenter must be a Deepgram org member.
+      # Bots are explicitly excluded — we don't want bot-to-bot loops.
+      # ------------------------------------------------------------------
+      - name: Check commenter org membership
+        id: auth
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMENTER="${{ github.event.comment.user.login }}"
+
+          # Never respond to bots — prevents feedback loops
+          if [[ "$COMMENTER" == *"[bot]"* ]]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "Commenter is a bot — skipping"
+            exit 0
+          fi
+
+          http_line=$(gh api "orgs/deepgram/members/${COMMENTER}" -i 2>/dev/null | head -1)
+          if echo "$http_line" | grep -q "204"; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "$COMMENTER is a Deepgram org member — proceeding"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "$COMMENTER is not a Deepgram org member — ignoring"
+          fi
+
+      # ------------------------------------------------------------------
+      # Resolve context: which issue/PR, which branch to check out
+      # ------------------------------------------------------------------
+      - name: Resolve context
+        id: ctx
+        if: steps.auth.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "pull_request_review_comment" ]; then
+            number="${{ github.event.pull_request.number }}"
+            branch="${{ github.event.pull_request.head.ref }}"
+            context_type="PR"
+          else
+            # issue_comment — could be on an issue or a PR
+            number="${{ github.event.issue.number }}"
+            branch=$(gh pr view "$number" --json headRefName -q .headRefName 2>/dev/null || true)
+            if [ -n "$branch" ]; then
+              context_type="PR"
+            else
+              branch="main"
+              context_type="issue"
+            fi
+          fi
+
+          echo "number=$number"           >> "$GITHUB_OUTPUT"
+          echo "branch=$branch"           >> "$GITHUB_OUTPUT"
+          echo "context_type=$context_type" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.auth.outputs.allowed == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ steps.ctx.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Configure git
+        if: steps.auth.outputs.allowed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ------------------------------------------------------------------
+      # Run the engineering agent — full unrestricted access to the repo.
+      # Acts on whatever was asked, commits if needed, replies in thread.
+      # ------------------------------------------------------------------
+      - name: Run engineering agent
+        if: steps.auth.outputs.allowed == 'true'
+        uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-opus-4-6
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+          timeout_minutes: 55
+          direct_prompt: |
+            @${{ github.event.comment.user.login }} mentioned @claude on ${{ steps.ctx.outputs.context_type }} #${{ steps.ctx.outputs.number }}:
+
+            "${{ github.event.comment.body }}"
+
+            ---
+
+            Act on this request. You have full access to the entire repository — read any file, write code, run tests, install dependencies, commit changes, push branches, open or update PRs. Do not hold back capability.
+
+            Context:
+            - Repository: ${{ github.repository }}
+            - ${{ steps.ctx.outputs.context_type }}: #${{ steps.ctx.outputs.number }}
+            - Branch checked out: ${{ steps.ctx.outputs.branch }}
+            - Comment URL: ${{ github.event.comment.html_url }}
+
+            When you are done, post a reply comment on #${{ steps.ctx.outputs.number }} summarising what you did (or explaining clearly why you couldn't do it). Use this exact command to post:
+
+            ```bash
+            gh issue comment ${{ steps.ctx.outputs.number }} \
+              --repo ${{ github.repository }} \
+              --body "YOUR REPLY HERE"
+            ```
+
+            ⛔ Never modify anything under .github/, .claude/, context7.json, or renovate.json — these are infrastructure files that manage the repo itself and must only change through deliberate human commits.
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

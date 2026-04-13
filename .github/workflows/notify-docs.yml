@@ -1,7 +1,8 @@
-name: Notify docs — new example ready
+name: Notify docs — example added or updated
 
-# When a new example PR merges to main, create a [Suggestion] issue in deepgram-docs
-# so the content-pm workflow can research and queue a tutorial guide for it.
+# When any PR merges to main, check whether it touched an examples/ directory.
+# For each example that changed, open an issue in deepgram/deepgram-docs with
+# full context so a content writer can pick it up and turn it into a guide.
 #
 # Required secrets:
 #   DOCS_PAT — PAT with issues:write scope on deepgram/deepgram-docs
@@ -13,72 +14,123 @@ on:
 
 jobs:
   notify:
-    name: Create guide suggestion in deepgram-docs
-    if: |
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.title, '[Example]')
+    name: Notify docs of changed examples
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2   # need HEAD and HEAD~1 to detect new vs updated
           ref: main
 
-      - name: Create guide suggestion in deepgram-docs
-        env:
-          GH_TOKEN: ${{ secrets.DOCS_PAT }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
+      - name: Find changed example directories
+        id: examples
         run: |
-          set -euo pipefail
-
-          # Find the example directory added or modified by this PR
-          EXAMPLE_DIR=$(git diff --name-only HEAD~1 HEAD \
+          DIRS=$(git diff --name-only HEAD~1 HEAD \
             | grep '^examples/' \
-            | head -1 \
-            | cut -d/ -f1-2)
+            | cut -d/ -f1-2 \
+            | sort -u \
+            | grep -E '^examples/[0-9]{3}-' || true)
 
-          if [ -z "$EXAMPLE_DIR" ]; then
-            echo "No example directory found in diff — skipping"
-            exit 0
+          if [ -z "$DIRS" ]; then
+            echo "No example directories changed — skipping"
+            echo "dirs=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed examples: $DIRS"
+            # Newlines -> space-separated for matrix-style iteration
+            echo "dirs=$(echo "$DIRS" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           fi
 
-          SLUG=$(basename "$EXAMPLE_DIR")
-          echo "Example slug: $SLUG"
+      - name: Create docs issues for each changed example
+        if: steps.examples.outputs.dirs != ''
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_PAT }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          for EXAMPLE_DIR in ${{ steps.examples.outputs.dirs }}; do
+            SLUG=$(basename "$EXAMPLE_DIR")
 
-          # Read the example README for title
-          README_TITLE=$(head -3 "$EXAMPLE_DIR/README.md" 2>/dev/null \
-            | grep '^#' | head -1 | sed 's/^# *//' || echo "$SLUG")
+            # Determine whether this is a new example or an update
+            if git show HEAD~1:"${EXAMPLE_DIR}/README.md" &>/dev/null; then
+              ACTION="updated"
+              ISSUE_TITLE="Tutorial update: ${SLUG}"
+            else
+              ACTION="added"
+              ISSUE_TITLE="Tutorial opportunity: ${SLUG}"
+            fi
 
-          # Create suggestion issue in deepgram-docs
-          gh issue create \
-            --repo deepgram/deepgram-docs \
-            --title "[Suggestion] Guide for ${SLUG}" \
-            --label "type:suggestion" \
-            --body "## What to write
+            echo "Processing $SLUG ($ACTION)"
 
-A step-by-step tutorial guide for the [${README_TITLE}](https://github.com/deepgram/dx-examples/tree/main/${EXAMPLE_DIR}) example.
+            # Build the issue body in Python — handles multi-line content safely
+            python3 - "$EXAMPLE_DIR" "$SLUG" "$ACTION" <<'PYEOF'
+import sys, os, pathlib, textwrap
 
-## Why this matters
+example_dir, slug, action = sys.argv[1], sys.argv[2], sys.argv[3]
+pr_url   = os.environ["PR_URL"]
+pr_title = os.environ["PR_TITLE"]
+pr_num   = os.environ["PR_NUMBER"]
 
-New example added in ${PR_URL} — a guide will help developers discover and follow along with it.
+base     = pathlib.Path(example_dir)
+verb     = "added" if action == "added" else "updated"
+gh_url   = f"https://github.com/deepgram/dx-examples/tree/main/{example_dir}"
 
-<!-- metadata
-example_slug: ${SLUG}
-source: dx-examples
--->
+# Read example files — truncate generously to stay under GH's 65k body limit
+def read(path, limit=12000):
+    p = base / path
+    if not p.exists():
+        return None
+    txt = p.read_text(errors="ignore")
+    if len(txt) > limit:
+        txt = txt[:limit] + f"\n\n… *(truncated — full file at {gh_url}/{path})*"
+    return txt
 
-## Source example
+readme = read("README.md")
+blog   = read("BLOG.md", limit=20000)
 
-- **Slug:** \`${SLUG}\`
-- **Example:** [${README_TITLE}](https://github.com/deepgram/dx-examples/tree/main/${EXAMPLE_DIR})
-- **Merged PR:** ${PR_URL}
+lines = []
+lines.append(f"A Deepgram example was **{verb}** in PR #{pr_num}: [{pr_title}]({pr_url}).\n")
+lines.append(f"**Example:** [`{slug}`]({gh_url})\n")
+lines.append("---\n")
+lines.append("## What a writer should do with this\n")
+lines.append(textwrap.dedent(f"""\
+    Use the BLOG.md below as the basis for a developer tutorial. It walks through
+    the build step by step. The README is the quickstart reference. Between them,
+    everything a developer needs is already here — your job is to edit for voice,
+    add any extra context for the docs audience, and publish.
+"""))
+lines.append("---\n")
 
----
-*Auto-created by notify-docs workflow after example merge.*"
+if readme:
+    lines.append("## README (quickstart guide)\n")
+    lines.append(f"```markdown\n{readme}\n```\n")
 
-          echo "Suggestion issue created in deepgram-docs for $SLUG"
+if blog:
+    lines.append("## BLOG.md (development narrative — use as tutorial draft)\n")
+    lines.append(f"```markdown\n{blog}\n```\n")
+elif not blog:
+    lines.append("## BLOG.md\n")
+    lines.append("*(No BLOG.md found in this example — write the tutorial from scratch using the README and source code.)*\n")
+
+lines.append("---\n")
+lines.append(f"*Auto-created by notify-docs workflow. Source: [dx-examples PR #{pr_num}]({pr_url})*")
+
+body_file = pathlib.Path("/tmp/docs-issue-body.md")
+body_file.write_text("\n".join(lines))
+print(f"Body written ({body_file.stat().st_size} bytes)")
+PYEOF
+
+            # Create the issue in deepgram-docs
+            gh issue create \
+              --repo deepgram/deepgram-docs \
+              --title "$ISSUE_TITLE" \
+              --label "type:suggestion" \
+              --body-file /tmp/docs-issue-body.md
+
+            echo "Issue created for $SLUG"
+          done
