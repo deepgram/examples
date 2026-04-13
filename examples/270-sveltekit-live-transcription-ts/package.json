@@ -22,7 +22,8 @@
   },
   "devDependencies": {
     "typescript": "5.9.3",
-    "ws": "8.20.0"
+    "ws": "8.20.0",
+    "@sveltejs/kit": "2.57.1"
   },
   "engines": {
     "node": ">=18"
