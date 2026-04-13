@@ -25,9 +25,11 @@ jobs:
           }
 
           # Type labels
+          create_label "type:suggestion" "c5def5" "Suggested example to build — triggers build pipeline when applied"
           create_label "type:example"    "0075ca" "New example app"
           create_label "type:fix"        "d93f0b" "Fix to existing example"
           create_label "type:docs"       "e4e669" "Documentation update"
+          create_label "automated"       "eeeeee" "Opened by the build pipeline"
 
           # Status labels
           create_label "status:needs-credentials" "f9d0c4" "Missing env vars for E2E tests"

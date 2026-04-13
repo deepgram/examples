@@ -1,0 +1,212 @@
+name: Issue Handler
+
+# Classifies and responds to issues — but ONLY from Deepgram org members,
+# or external issues that an org member has explicitly approved by applying
+# the type:suggestion label.
+#
+# External issues with no label are completely invisible to this workflow.
+# No response is posted, no tokens are consumed. An org member must manually
+# find it, review it, and apply type:suggestion before anything happens.
+#
+# @claude in an issue   → this workflow (classify, respond, ask questions)
+# @claude in a PR       → engineering.yml (code changes, repo ops)
+
+on:
+  issues:
+    types: [opened, edited, labeled, reopened]
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  handle:
+    name: Handle issue
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'issues' ||
+      (github.event_name == 'issue_comment' &&
+       !contains(github.event.issue.html_url, '/pull/') &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    concurrency:
+      group: issue-handler-${{ github.event.issue.number || 'sweep' }}
+      cancel-in-progress: false
+
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      # ------------------------------------------------------------------
+      # Resolve which issue to handle, and verify it's eligible.
+      #
+      # Eligibility rules (all paths):
+      #   - Issue author is a Deepgram org member, OR
+      #   - Issue carries the type:suggestion label (org member approved it)
+      #
+      # External issues with neither condition are silently skipped.
+      # No comment is posted. No tokens are consumed.
+      # ------------------------------------------------------------------
+      - name: Resolve issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "issues" ] || [ "$EVENT" = "issue_comment" ]; then
+            NUMBER="${{ github.event.issue.number }}"
+
+            # @claude mention: gate on the commenter being an org member
+            if [ "$EVENT" = "issue_comment" ]; then
+              COMMENTER="${{ github.event.comment.user.login }}"
+              if [[ "$COMMENTER" == *"[bot]"* ]]; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              http_line=$(gh api "orgs/deepgram/members/${COMMENTER}" -i 2>/dev/null | head -1)
+              if ! echo "$http_line" | grep -q "204"; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "$COMMENTER is not a Deepgram org member — ignoring"
+                exit 0
+              fi
+            fi
+
+            # Issue event: check author org membership OR type:suggestion label
+            issue_json=$(gh issue view "$NUMBER" --json author,labels)
+            author=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['author']['login'])")
+            has_label=$(echo "$issue_json" | python3 -c "
+import json, sys
+labels = {l['name'] for l in json.load(sys.stdin)['labels']}
+print('true' if 'type:suggestion' in labels else 'false')
+")
+
+            if [[ "$author" != *"[bot]"* ]] && [[ "$has_label" != "true" ]]; then
+              http_line=$(gh api "orgs/deepgram/members/${author}" -i 2>/dev/null | head -1)
+              if ! echo "$http_line" | grep -q "204"; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "Issue #${NUMBER} author '${author}' is not a Deepgram org member and has no label approval — skipping"
+                exit 0
+              fi
+            fi
+
+            echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+
+          else
+            # Cron/dispatch sweep: only pick up issues with type:suggestion label
+            # where our reply isn't already the last comment.
+            # Filtering by label is cheap and covers both org-member issues they
+            # labeled themselves and external issues an org member approved.
+            NUMBER=$(gh issue list \
+              --repo "${{ github.repository }}" \
+              --label "type:suggestion" \
+              --state open \
+              --limit 50 \
+              --json number \
+              --jq '.[].number' | python3 -c "
+import sys, subprocess, json
+
+numbers = [int(l.strip()) for l in sys.stdin if l.strip()]
+numbers.reverse()  # oldest first
+
+for num in numbers:
+    result = subprocess.run(
+        ['gh', 'issue', 'view', str(num),
+         '--repo', '${{ github.repository }}',
+         '--json', 'comments,labels'],
+        capture_output=True, text=True
+    )
+    data = json.loads(result.stdout)
+
+    # Skip already-built issues
+    label_names = {l['name'] for l in data.get('labels', [])}
+    if {'type:example', 'automated'}.intersection(label_names):
+        continue
+
+    comments = data.get('comments', [])
+    if not comments:
+        print(num)
+        break
+    if '<!-- claude-reply -->' not in comments[-1].get('body', ''):
+        print(num)
+        break
+" 2>/dev/null || true)
+
+            if [ -z "$NUMBER" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No eligible issues to handle"
+            else
+              echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+              echo "Processing issue #$NUMBER"
+            fi
+          fi
+
+      - name: Skip if nothing to handle
+        if: steps.issue.outputs.skip == 'true'
+        run: echo "Skipping — no eligible issue."
+
+      - name: Checkout
+        if: steps.issue.outputs.skip != 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Handle issue
+        if: steps.issue.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          mode: agent
+          model: claude-sonnet-4-6
+          allowed_tools: "Bash"
+          timeout_minutes: 8
+          direct_prompt: |
+            You are the issue handler for the deepgram/dx-examples repository — a collection
+            of working code examples showing Deepgram integrations. You represent the Deepgram
+            developer experience team.
+
+            Read the full issue:
+            ```bash
+            gh issue view ${{ steps.issue.outputs.number }} \
+              --repo ${{ github.repository }} \
+              --json number,title,body,labels,comments,author
+            ```
+
+            **If `<!-- claude-reply -->` is in the last comment and no new comments appear
+            after it — the issue is already handled. Do nothing and exit.**
+
+            Otherwise read everything and respond. You do not need to rigidly classify —
+            read it as a person and respond naturally:
+
+            - Example or modification request → acknowledge, confirm you understand what
+              they're after. If `type:suggestion` is not already on the issue, apply it:
+              `gh issue edit ${{ steps.issue.outputs.number }} --repo ${{ github.repository }} --add-label "type:suggestion"`
+              Then tell them it's queued for building.
+
+            - Something broken in an existing example → acknowledge, ask for specifics if
+              needed (SDK version, error message, language). Don't over-ask — if the issue
+              already has everything, confirm it's noted.
+
+            - A question → answer it directly. Look at relevant example code if helpful.
+
+            - Vague or incomplete → ask one or two specific questions. Be precise about
+              what you need — don't say "please provide more info".
+
+            End every response with `<!-- claude-reply -->` on its own line (hidden marker):
+
+            ```bash
+            gh issue comment ${{ steps.issue.outputs.number }} \
+              --repo ${{ github.repository }} \
+              --body "YOUR RESPONSE
+
+            <!-- claude-reply -->"
+            ```
+
+            Be concise. Be specific. Sound like a developer, not a support bot.
+            Do not start with "Great question!" or similar filler.
+
+            ⛔ Do not modify any files. Do not open PRs. Do not merge anything.
+            ⛔ Do not modify anything under .github/, .claude/, context7.json, or renovate.json.

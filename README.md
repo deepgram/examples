@@ -78,13 +78,21 @@ Every PR that touches `examples/**` runs language-specific test jobs automatical
 
 All examples are also tested on a recurring schedule to catch regressions from SDK updates or API changes.
 
+## Automated example building
+
+Suggesting a new integration is as simple as [opening an issue](../../issues/new/choose). From there, a GitHub Actions workflow handles the build: an LLM agent (Claude Opus) writes the code, runs it in a Docker sandbox, diagnoses failures, and iterates until tests pass — then opens a PR for human review before anything merges. The workflow also sweeps open suggestions on a schedule, so nothing sits unbuilt indefinitely.
+
+The agent uses a **neurosymbolic architecture** to stay on track. A symbolic working memory records observed facts as tools fire — which files exist, whether tests are passing, which phases are complete — without the LLM being able to misreport them. A forward-chaining rule engine pattern-matches tool output each turn and injects targeted guidance when things go wrong: missing imports get named, repeated failing commands trigger a strategy nudge, turn-budget warnings reprioritise the remaining work. And a constraint checker holds a formal veto over completion: when the agent signals it's done, the checker verifies the definition of done deterministically — required files exist, test directories are non-empty, no hardcoded secrets — and rejects the signal if anything is missing. The LLM handles open-ended reasoning and generation; the symbolic layer handles state, rules, and verification.
+
 ## Directory structure
 
 ```
 examples/
   {NNN}-{slug}/           # e.g. 010-getting-started-node
-    README.md             # What it does, prerequisites, env vars, how to run
+    README.md             # Quickstart — what it does, prerequisites, env vars, how to run
+    BLOG.md               # Developer walkthrough — how it was built, step by step
     .env.example          # Every required environment variable (no values)
+    screenshot.png        # 1240×760 Playwright screenshot (UI/terminal examples)
     src/                  # Source code
     tests/                # Tests — exit 0=pass, 1=fail, 2=missing credentials
 
@@ -93,6 +101,7 @@ tests/
 
 .github/
   workflows/              # CI workflows
+  scripts/                # Agent scripts (plan, build, filter secrets, symbolic layer)
   ISSUE_TEMPLATE/         # Issue templates
 ```
 
