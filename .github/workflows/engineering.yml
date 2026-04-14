@@ -360,7 +360,7 @@ print('true' if 'type:suggestion' in labels else 'false')
   engineering:
     if: |
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.issue.html_url, '/pull/') && contains(github.event.comment.body, '@claude'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
 

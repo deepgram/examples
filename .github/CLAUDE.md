@@ -57,7 +57,9 @@ Context for Claude Code working on the engineering pipeline automation in this d
 - Integration tests pass (exit 0, real Deepgram calls)
 - Browser/Playwright tests pass if the example has UI
 - Example demonstrates the integration end to end — nothing skipped, nothing mocked that could be real
-- README is accurate: what it does, prerequisites, all env vars, how to run, what to expect, what's mocked and why
+- README is accurate: what it does, prerequisites, all env vars, how to run, what to expect, what's mocked and why. Screenshot embedded if one was taken.
+- `BLOG.md` is a complete, publishable developer walkthrough of building the example from scratch — written by the agent as part of the build
+- `screenshot.png` present in the example root if the example has any UI or meaningful visual output (1240×760, taken with Playwright by the agent)
 - `.env.example` lists every required variable
 - No hardcoded secrets
 
