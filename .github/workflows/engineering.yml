@@ -221,7 +221,7 @@ jobs:
           WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
           DOCKER_IMAGE: ${{ steps.plan.outputs.docker_image }}
           WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
-          EXAMPLES_DIR: ${{ github.workspace }}/examples
+          EXAMPLES_DIR: ${{ github.workspace }}
           BUILD_LOG: /tmp/build-log.md
         run: python3 .github/scripts/run_agent.py
 
@@ -269,32 +269,33 @@ jobs:
           RUNTIME: ${{ steps.plan.outputs.runtime }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
+          WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
         run: |
           if [ "$WORKSPACE_ACTION" = "modify" ]; then
             pr_title="feat(examples): update ${WORKSPACE_SUBDIR}"
-            action_label="Updated"
           else
             pr_title="feat(examples): add ${WORKSPACE_SUBDIR}"
-            action_label="New"
           fi
 
-          body_file=$(mktemp)
-          {
-            printf "Closes #%s\n\n" "$ISSUE_NUMBER"
-            printf "Auto-generated from issue suggestion by the engineering pipeline.\n\n"
-            printf "**Action:** %s\n" "$action_label"
-            printf "**Runtime:** \`%s\`\n" "$RUNTIME"
-            printf "**Example:** \`%s\`\n\n" "$WORKSPACE_SUBDIR"
-            printf -- "---\n\n## Build log\n\n"
-            head -c 60000 /tmp/build-log.md 2>/dev/null || printf "No build log found.\n"
-          } > "$body_file"
+          # Build PR body — prints "needs-credentials" if the label should apply
+          needs_creds=$(python3 .github/scripts/build_pr_body.py \
+            --workspace "$WORKSPACE_DIR" \
+            --issue "$ISSUE_NUMBER" \
+            --action "$WORKSPACE_ACTION" \
+            --runtime "$RUNTIME" \
+            --example "$WORKSPACE_SUBDIR" \
+            --build-log /tmp/build-log.md)
+
+          labels="type:example,automated"
+          if [ "$needs_creds" = "needs-credentials" ]; then
+            labels="$labels,needs-credentials"
+          fi
 
           url=$(gh pr create \
             --title "$pr_title" \
-            --body-file "$body_file" \
+            --body-file /tmp/pr-body.md \
             --base main \
-            --label "type:example" \
-            --label "automated")
+            --label "$labels")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
