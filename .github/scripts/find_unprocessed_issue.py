@@ -31,13 +31,18 @@ def main() -> None:
 
     for num in numbers:
         r = subprocess.run(
-            ["gh", "issue", "view", str(num), "--repo", args.repo, "--json", "comments"],
+            ["gh", "issue", "view", str(num), "--repo", args.repo,
+             "--json", "comments,labels"],
             capture_output=True,
             text=True,
         )
-        comments = json.loads(r.stdout).get("comments", [])
+        data = json.loads(r.stdout)
+        label_names = {l["name"] for l in data.get("labels", [])}
+        if "build:in-progress" in label_names:
+            continue  # build currently running
+        comments = data.get("comments", [])
         if any("<!-- pr-opened -->" in c.get("body", "") for c in comments):
-            continue  # build already started or completed
+            continue  # build already completed
         print(json.dumps({"number": num}))
         return
 

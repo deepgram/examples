@@ -123,7 +123,19 @@ jobs:
         run: echo "Skipping — no eligible issue to build."
 
       # ------------------------------------------------------------------
-      # 2. Extract secret names (not values) from the secrets context
+      # 2. Mark issue as build in progress
+      # ------------------------------------------------------------------
+      - name: Label build in progress
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ steps.issue.outputs.number }} \
+            --repo "${{ github.repository }}" \
+            --add-label "build:in-progress"
+
+      # ------------------------------------------------------------------
+      # 3. Extract secret names (not values) from the secrets context
       # ------------------------------------------------------------------
       - name: Extract secret names
         id: secret_names
@@ -317,21 +329,28 @@ jobs:
             });
 
       # ------------------------------------------------------------------
-      # Cleanup on failure
+      # Cleanup — always remove build:in-progress label
       # ------------------------------------------------------------------
-      - name: Comment on issue (failure)
-        if: failure() && steps.issue.outputs.skip != 'true'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      - name: Remove build-in-progress label (success)
+        if: steps.issue.outputs.skip != 'true'
         env:
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: parseInt(process.env.ISSUE_NUMBER),
-              body: `❌ Build failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.`,
-            });
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ steps.issue.outputs.number }} \
+            --repo "${{ github.repository }}" \
+            --remove-label "build:in-progress" 2>/dev/null || true
+
+      - name: Remove build-in-progress label and comment (failure)
+        if: failure() && steps.issue.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ steps.issue.outputs.number }} \
+            --repo "${{ github.repository }}" \
+            --remove-label "build:in-progress" 2>/dev/null || true
+          gh issue comment ${{ steps.issue.outputs.number }} \
+            --repo "${{ github.repository }}" \
+            --body "❌ Build failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
 
 
   # ── Engineering: act on @claude mentions anywhere in the repo ───────────────
