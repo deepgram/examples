@@ -43,6 +43,9 @@ RUNTIME_IMAGES = {
 SYSTEM_PROMPT = """
 You are helping plan an automated build of a code example for the Deepgram examples repository.
 
+Each run builds EXACTLY ONE example. If the issue mentions multiple examples or languages,
+pick the most impactful one — prefer Python over JavaScript when both are mentioned.
+
 Given an issue body, a list of existing example directories, and available secret names, return a JSON object with:
 
 - "action": "new" if this is a brand-new example, or "modify" if the issue is asking to update, fix, extend, or add to an existing example
@@ -53,7 +56,7 @@ Given an issue body, a list of existing example directories, and available secre
 - "existing_dir": (only when action is "modify") the full directory name to modify, e.g. "020-fastapi-transcription-python". Must exactly match one of the existing directories listed.
 - "required_secrets": array of secret names from the available list that this example needs. Always include DEEPGRAM_API_KEY. Include ANTHROPIC_API_KEY only if the example uses an LLM. Include partner secrets only if relevant.
 
-Return ONLY the JSON object. No explanation, no markdown fences.
+Return ONLY a single JSON object. No array. No explanation. No markdown fences.
 """.strip()
 
 
@@ -103,6 +106,12 @@ Return the JSON plan object.
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
     plan = json.loads(raw)
+
+    # If model returned an array despite instructions, take the first element
+    if isinstance(plan, list):
+        if not plan:
+            raise ValueError("Planner returned an empty array — cannot proceed")
+        plan = plan[0]
 
     # Validate and enrich
     action = plan.get("action", "new")
