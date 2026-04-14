@@ -1,0 +1,14 @@
+# LiveKit Agents framework
+livekit-agents>=1.5.0
+
+# Deepgram plugins for STT and TTS
+livekit-plugins-deepgram>=1.5.0
+
+# OpenAI plugin for LLM
+livekit-plugins-openai>=1.5.0
+
+# Silero plugin for Voice Activity Detection
+livekit-plugins-silero>=1.5.0
+
+# Additional dependencies
+python-dotenv>=1.0.0
