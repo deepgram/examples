@@ -93,18 +93,18 @@ jobs:
             echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
 
           else
-            # Cron/dispatch sweep: only pick up issues with type:suggestion label
-            # where our reply isn't already the last comment.
-            # Filtering by label is cheap and covers both org-member issues they
-            # labeled themselves and external issues an org member approved.
+            # Cron/dispatch sweep: pick up any open issue that hasn't had a
+            # claude-reply yet. find_unhandled_issue.py enforces org membership
+            # for issues without type:suggestion, so external issues still need
+            # explicit approval before getting a response.
             NUMBER=$(gh issue list \
               --repo "${{ github.repository }}" \
-              --label "type:suggestion" \
               --state open \
               --limit 50 \
               --json number \
               --jq '.[].number' | python3 .github/scripts/find_unhandled_issue.py \
-              --repo "${{ github.repository }}" 2>/dev/null || true)
+              --repo "${{ github.repository }}" \
+              --org deepgram 2>/dev/null || true)
 
             if [ -z "$NUMBER" ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
