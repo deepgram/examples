@@ -291,12 +291,16 @@ def build_system_prompt() -> str:
     - Example number: `{EXAMPLE_NUMBER}`
     - Example slug: `{EXAMPLE_SLUG}`
     - Docker image: `{DOCKER_IMAGE}`
-    - Workspace root: `/workspace`
+    - Workspace root: `/workspace` (this IS the example directory — `examples/{workspace_dir_name}/` on the host)
     - Existing examples in repo: {', '.join(existing) if existing else 'none yet'}
-    - Your {'output' if WORKSPACE_ACTION == 'new' else 'target'} directory: `examples/{workspace_dir_name}/`
 
     The workspace is mounted at `/workspace` inside the container.
-    All file paths in tool calls are relative to the workspace root.
+    The container working directory is already set to `/workspace`.
+    All file paths in `write_file`, `read_file`, and `list_files` tool calls are relative
+    to `/workspace` — i.e. directly inside the example directory.
+
+    Write `src/main.py`, not `examples/{workspace_dir_name}/src/main.py`.
+    Write `README.md`, not `examples/{workspace_dir_name}/README.md`.
     """)
 
 
