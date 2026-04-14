@@ -89,7 +89,7 @@ jobs:
           fi
 
           # Fetch author, body, and labels in one call
-          issue_json=$(gh issue view "$number" --json author,body,labels)
+          issue_json=$(gh issue view "$number" --repo "${{ github.repository }}" --json author,body,labels)
           author=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['author']['login'])")
           body=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['body'])")
           has_suggestion=$(echo "$issue_json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('true' if any(l['name']=='type:suggestion' for l in d['labels']) else 'false')")

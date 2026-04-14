@@ -77,7 +77,7 @@ jobs:
             fi
 
             # Issue event: check author org membership OR type:suggestion label
-            issue_json=$(gh issue view "$NUMBER" --json author,labels)
+            issue_json=$(gh issue view "$NUMBER" --repo "${{ github.repository }}" --json author,labels)
             author=$(echo "$issue_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['author']['login'])")
             has_label=$(echo "$issue_json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('true' if any(l['name']=='type:suggestion' for l in d['labels']) else 'false')")
 
