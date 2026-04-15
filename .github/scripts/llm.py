@@ -136,8 +136,12 @@ def _post(url: str, payload: dict) -> dict:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode("utf-8", errors="replace")
+        raise Exception(f"HTTP {e.code} {e.reason} on {url}\nBody: {body_text[:1000]}") from e
 
 
 def _openai_normalise(data: dict) -> dict:
