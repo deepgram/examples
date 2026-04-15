@@ -10,7 +10,6 @@ This example demonstrates how to build a minimal voice assistant using LiveKit A
 - A LiveKit server with API credentials
 - Deepgram API key
 - OpenAI API key
-- 
 
 ## Environment Variables
 
