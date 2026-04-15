@@ -246,6 +246,10 @@ def run() -> None:
         blocks = extract_blocks(response)
         stop_reason = response_stop_reason(response)
         text_content = response_text(response)
+
+        if turn <= 3:
+            print(f"DEBUG turn {turn}: stop={stop_reason} text_len={len(text_content)} blocks={len(blocks)}")
+
         messages.append(wrap_message("assistant", blocks))
 
         if stop_reason == "end_turn":
