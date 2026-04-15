@@ -7,7 +7,7 @@ that still needs a response from the issue handler.
 
 An issue is considered already handled if:
   - It has the 'type:example' or 'automated' label (build already done), OR
-  - Its last comment contains '<!-- claude-reply -->' (already replied)
+  - Its last comment contains '<!-- robot-reply -->' (already replied)
 
 Additional filter --org-members-only: when set, also checks that the issue
 author is a member of the given GitHub org. Issues by non-members without
@@ -69,7 +69,7 @@ def main() -> None:
         if not comments:
             print(num)
             return
-        if "<!-- claude-reply -->" not in comments[-1].get("body", ""):
+        if "<!-- robot-reply -->" not in comments[-1].get("body", ""):
             print(num)
             return
 

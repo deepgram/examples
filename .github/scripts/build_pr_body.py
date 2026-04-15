@@ -100,7 +100,7 @@ def main() -> None:
     if args.incomplete:
         lines.append(f"Part of #{args.issue} — turn limit reached, build incomplete.\n")
         lines.append(
-            f"> ⚠️ **WIP** — the agent ran out of turns. Comment `@claude continue` "
+            f"> ⚠️ **WIP** — the agent ran out of turns. Comment `@deepgram-robot continue` "
             f"to resume from where it left off.\n"
         )
     else:

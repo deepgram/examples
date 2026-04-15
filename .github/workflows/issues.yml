@@ -8,8 +8,8 @@ name: Issue Handler
 # No response is posted, no tokens are consumed. An org member must manually
 # find it, review it, and apply type:suggestion before anything happens.
 #
-# @claude in an issue   → this workflow (classify, respond, ask questions)
-# @claude in a PR       → engineering.yml (code changes, repo ops)
+# @deepgram-robot in an issue → this workflow (classify, respond, ask questions)
+# @deepgram-robot in a PR    → engineering.yml (code changes, repo ops)
 
 on:
   issues:
@@ -29,7 +29,7 @@ jobs:
       github.event_name == 'issues' ||
       (github.event_name == 'issue_comment' &&
        !contains(github.event.issue.html_url, '/pull/') &&
-       contains(github.event.comment.body, '@claude'))
+       contains(github.event.comment.body, '@deepgram-robot'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -62,7 +62,7 @@ jobs:
           if [ "$EVENT" = "issues" ] || [ "$EVENT" = "issue_comment" ]; then
             NUMBER="${{ github.event.issue.number }}"
 
-            # @claude mention: gate on the commenter being an org member
+            # @deepgram-robot mention: gate on the commenter being an org member
             if [ "$EVENT" = "issue_comment" ]; then
               COMMENTER="${{ github.event.comment.user.login }}"
               if [[ "$COMMENTER" == *"[bot]"* ]]; then
@@ -94,7 +94,7 @@ jobs:
 
           else
             # Cron/dispatch sweep: pick up any open issue that hasn't had a
-            # claude-reply yet. find_unhandled_issue.py enforces org membership
+            # robot-reply yet. find_unhandled_issue.py enforces org membership
             # for issues without type:suggestion, so external issues still need
             # explicit approval before getting a response.
             NUMBER=$(gh issue list \
@@ -145,7 +145,7 @@ jobs:
               --json number,title,body,labels,comments,author
             ```
 
-            **If `<!-- claude-reply -->` is in the last comment and no new comments appear
+            **If `<!-- robot-reply -->` is in the last comment and no new comments appear
             after it — the issue is already handled. Do nothing and exit.**
 
             Otherwise read everything and respond. You do not need to rigidly classify —
@@ -165,18 +165,18 @@ jobs:
             - Vague or incomplete → ask one or two specific questions. Be precise about
               what you need — don't say "please provide more info".
 
-            End every response with `<!-- claude-reply -->` on its own line (hidden marker):
+            End every response with `<!-- robot-reply -->` on its own line (hidden marker):
 
             ```bash
             gh issue comment ${{ steps.issue.outputs.number }} \
               --repo ${{ github.repository }} \
               --body "YOUR RESPONSE
 
-            <!-- claude-reply -->"
+            <!-- robot-reply -->"
             ```
 
             Be concise. Be specific. Sound like a developer, not a support bot.
             Do not start with "Great question!" or similar filler.
 
             ⛔ Do not modify any files. Do not open PRs. Do not merge anything.
-            ⛔ Do not modify anything under .github/, .claude/, context7.json, or renovate.json.
+            ⛔ Do not modify anything under .github/, context7.json, or renovate.json.

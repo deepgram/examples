@@ -7,9 +7,9 @@ name: Engineering Pipeline
 #              sandbox with a neurosymbolic agent loop. PRs are opened for
 #              human review before anything merges.
 #
-# engineering — triggered when a Deepgram org member @mentions @claude in any
-#              issue or PR comment. Full unrestricted access to the entire repo.
-#              Acts on the request, commits if needed, and replies in the thread.
+# engineering — triggered when a Deepgram org member @mentions @deepgram-robot
+#              in any issue or PR comment. Full unrestricted access to the entire
+#              repo. Acts on the request, commits if needed, replies in thread.
 #
 # Both jobs gate on Deepgram org membership before spending any AI budget.
 
@@ -422,7 +422,7 @@ jobs:
           - Phases complete: ${phases:-none}
           - Tests: ${tests}
 
-          To continue: comment \`@claude continue\` on this issue or on the draft PR.
+          To continue: comment \`@deepgram-robot continue\` on this issue or on the draft PR.
 
           <!-- pr-opened -->
           <!-- agent-state: ${state} -->"
@@ -452,11 +452,11 @@ jobs:
             --body "❌ Build failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
 
 
-  # ── Engineering: act on @claude mentions anywhere in the repo ───────────────
+  # ── Engineering: act on @deepgram-robot mentions anywhere in the repo ────────
   engineering:
     if: |
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@deepgram-robot')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@deepgram-robot'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -566,7 +566,7 @@ jobs:
           allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
           timeout_minutes: 55
           direct_prompt: |
-            @${{ github.event.comment.user.login }} mentioned @claude on ${{ steps.ctx.outputs.context_type }} #${{ steps.ctx.outputs.number }}:
+            @${{ github.event.comment.user.login }} mentioned @deepgram-robot on ${{ steps.ctx.outputs.context_type }} #${{ steps.ctx.outputs.number }}:
 
             "${{ github.event.comment.body }}"
 
@@ -594,7 +594,7 @@ jobs:
               --body "YOUR REPLY HERE"
             ```
 
-            ⛔ Never modify anything under .github/, .claude/, context7.json, or renovate.json — these are infrastructure files that manage the repo itself and must only change through deliberate human commits.
+            ⛔ Never modify anything under .github/, context7.json, or renovate.json — these are infrastructure files that manage the repo itself and must only change through deliberate human commits.
         env:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -4,13 +4,13 @@ Context for Claude Code working on the engineering pipeline automation in this d
 
 ## What this does
 
-`workflows/engineering.yml` triggers when a `type:suggestion` label is added to an issue (build job), or when a Deepgram org member `@claude`s in any issue or PR (engineering job). The build job:
+`workflows/engineering.yml` triggers when a `type:suggestion` label is added to an issue (build job), or when a Deepgram org member `@deepgram-robot`s in any issue or PR (engineering job). The build job:
 
 1. Extracts secret *names* (not values) from the Actions secrets context
 2. Runs a cheap planning call (`scripts/plan_agent.py`) to determine runtime, Docker image, slug, and which secrets the example actually needs
 3. Builds a minimal env file with only the required secrets (`scripts/filter_secrets.py`)
 4. Spins up a Docker container with that env file
-5. Runs a full agentic build loop (`scripts/run_agent.py`) — Claude writes code, runs tests, fixes failures, repeats until tests pass or MAX_TURNS is hit
+5. Runs a full agentic build loop (`scripts/run_agent.py`) — agent writes code, runs tests, fixes failures, repeats until tests pass or MAX_TURNS is hit
 6. Commits the output to a branch and opens a PR with the full build log
 
 ## File map
@@ -18,9 +18,9 @@ Context for Claude Code working on the engineering pipeline automation in this d
 ```
 .github/
   workflows/
-    engineering.yml         # Unified pipeline: build job + engineering (@claude) job.
+    engineering.yml         # Unified pipeline: build job + engineering (@deepgram-robot) job.
   scripts/
-    plan_agent.py           # Planning phase. Haiku call. Outputs runtime/slug/required_secrets JSON.
+    plan_agent.py           # Planning phase. Fast model call. Outputs runtime/slug/required_secrets JSON.
     filter_secrets.py       # Filters full secrets blob to only required keys. Writes env file.
     next_example_number.py  # Reads examples/ dir, returns next available NNN slot.
     run_agent.py            # Main agentic loop. Tool-use with Docker sandbox. Runs until AGENT_DONE.
@@ -37,7 +37,7 @@ Context for Claude Code working on the engineering pipeline automation in this d
 
 **Docker for the sandbox, not the raw runner.** The runner stays clean. Each language gets its own image. The agent runs `docker exec` for all commands. Network is `bridge` (outbound OK, no inbound).
 
-**MAX_TURNS defaults to 75.** High enough for a complex multi-service build. Low enough to fail loudly rather than burn indefinitely. Override via `MAX_TURNS` env var in the workflow if needed. When hit, exits 1 and writes `AGENT_TURN_LIMIT_EXCEEDED` to the build log.
+**MAX_TURNS defaults to 150.** High enough for a complex multi-service build. When hit, exits 2 (not 1), commits partial work, opens a draft PR, and embeds `<!-- agent-state: {...} -->` in the issue comment so a continuation run can skip completed phases. Override via `MAX_TURNS` env var in the workflow if needed.
 
 **Mock the upstream, never Deepgram.** Deepgram is always real (real API key, real calls). Things that genuinely can't run in CI (phone number provisioning, inbound webhooks, OAuth browser flows) get a local mock server standing in for the upstream. Documented in the README.
 
@@ -84,7 +84,7 @@ Context for Claude Code working on the engineering pipeline automation in this d
 
 - `toJSON(secrets)` output is masked in logs but the JSON blob is in memory. Never log `ALL_SECRETS` directly.
 - The env file at `/tmp/sandbox.env` contains real secret values. It lives only for the duration of the run.
-- `plan_agent.py` uses Haiku (fast/cheap). `run_agent.py` uses Opus (capable). Don't swap these without thinking about the cost/quality tradeoff.
+- `plan_agent.py` uses a fast/cheap model. `run_agent.py` uses a capable model. Don't swap these without thinking about the cost/quality tradeoff.
 - Bootstrap (deepgram CLI + Playwright) runs on every container start. If builds are slow, bake a custom base image.
 - The build job uses `concurrency: group: build-{issue_number}` and the engineering job uses `concurrency: group: engineering-{number}` — both with `cancel-in-progress: false`, so they queue rather than cancel.
 
@@ -92,11 +92,11 @@ Context for Claude Code working on the engineering pipeline automation in this d
 
 `run_agent.py` uses a hybrid neural + symbolic design. The three symbolic components live in `scripts/agent_state.py`:
 
-**WorkingMemory** — a deterministic fact store updated after every tool dispatch. Records which files have been written, which phases are complete (readme, blog, env_example, screenshot, source, tests), whether tests are passing, and a command history for loop detection. The LLM never writes to working memory — only tool results do.
+**WorkingMemory** — a deterministic fact store updated after every tool dispatch. Records which files have been written, which phases are complete (readme, blog, env_example, screenshot, source, tests), whether tests are passing, and a command history for loop detection. The agent never writes to working memory — only tool results do.
 
 **RuleEngine** — forward-chaining production rules evaluated every turn. Rules fire when conditions match (e.g. `ModuleNotFoundError` in stderr → R1 fires, injecting the missing module name). High-priority rules are injected as a text block after tool results in the next user turn. One-shot rules (`R2`, `R4`, `R7`, etc.) fire at most once per session.
 
-**check_constraints** — deterministic pre-`AGENT_DONE` gate. When the LLM outputs `AGENT_DONE`, the constraint checker verifies: required files exist (`README.md`, `BLOG.md`, `.env.example`), `src/` and `tests/` are non-empty, and no source files contain hardcoded Deepgram API key patterns. If any constraint fails, `AGENT_DONE` is rejected and violations are injected as a new user turn. The LLM cannot self-certify completion.
+**check_constraints** — deterministic pre-`AGENT_DONE` gate. When the agent outputs `AGENT_DONE`, the constraint checker verifies: required files exist (`README.md`, `BLOG.md`, `.env.example`), `src/` and `tests/` are non-empty, and no source files contain hardcoded Deepgram API key patterns. If any constraint fails, `AGENT_DONE` is rejected and violations are injected as a new user turn. The agent cannot self-certify completion.
 
 Current rules: R1 (missing module), R2 (API auth failure), R3 (port conflict), R4 (anti-loop), R5 (tests passing/readme missing), R6 (readme done/blog missing), R7 (turn budget 80%), R8 (permission denied), R9 (network error), R10 (syntax error).
 

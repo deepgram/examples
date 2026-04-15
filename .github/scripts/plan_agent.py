@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Planning phase: given an issue body, available secret names, and the list of
-existing examples, asks Claude to determine:
+existing examples, uses an AI model to determine:
   - action: "new" or "modify"
   - the target runtime / Docker image
   - the example slug

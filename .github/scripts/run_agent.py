@@ -2,8 +2,8 @@
 """
 Agentic build loop for deepgram/examples.
 
-Runs Claude in a tool-use loop inside a Docker sandbox until the example
-is built, tested, and passing. No turn limit — keeps going until AGENT_DONE.
+Runs an AI agent in a tool-use loop inside a Docker sandbox until the example
+is built, tested, and passing. Stops on AGENT_DONE or turn limit.
 """
 
 import json
@@ -125,7 +125,7 @@ def list_files(path: str = ".") -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Tool definitions (passed to Claude)
+# Tool definitions (passed to the agent)
 # ---------------------------------------------------------------------------
 
 TOOLS = [
