@@ -101,27 +101,28 @@ def exec_in_container(command: str, timeout: int = 300) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def write_file(path: str, content: str) -> dict[str, Any]:
-    # Write to a temp file on the host, then use docker cp to put it in the
-    # container. This avoids PermissionError when the container (running as root)
-    # has already created parent directories that the host runner cannot write into.
-    import tempfile as _tmp
-    with _tmp.NamedTemporaryFile(mode="w", suffix=".tmp", delete=False) as tf:
-        tf.write(content)
-        tmp_path = tf.name
+    # Write directly to the host filesystem. Docker creates directories as root,
+    # so use sudo for mkdir. Files are written as the runner user so git can
+    # commit them without permission errors.
+    host_path = WORKSPACE / path
     try:
-        container_path = f"/workspace/{path}"
-        # Ensure parent directory exists inside the container
-        mkdir_result = exec_in_container(f"mkdir -p \"$(dirname '{container_path}')\"")
-        if mkdir_result["exit_code"] != 0:
-            return {"error": f"mkdir failed: {mkdir_result['stderr'][:200]}"}
-        cp_result = subprocess.run(
-            ["docker", "cp", tmp_path, f"{CONTAINER_NAME}:{container_path}"],
-            capture_output=True, text=True,
+        import os as _os
+        import subprocess as _subprocess
+        # Create parent dirs as root (Docker may have created them), then write
+        # as runner user
+        _subprocess.run(
+            ["sudo", "mkdir", "-p", str(host_path.parent)],
+            check=True, capture_output=True,
         )
-        if cp_result.returncode != 0:
-            return {"error": f"docker cp failed: {cp_result.stderr[:200]}"}
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        _subprocess.run(
+            ["sudo", "chown", "-R", f"{_os.getuid()}:{_os.getgid()}", str(host_path.parent)],
+            check=True, capture_output=True,
+        )
+        host_path.write_text(content)
+    except _subprocess.CalledProcessError as e:
+        return {"error": f"write failed: {e.stderr[:200] if e.stderr else str(e)}"}
+    except OSError as e:
+        return {"error": f"write failed: {e}"}
     return {"written": path, "bytes": len(content)}
 
 
