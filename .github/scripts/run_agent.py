@@ -15,7 +15,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from llm import client, MODEL, messages_create, response_text, response_stop_reason, wrap_message, wrap_tool_result, extract_blocks
+from llm import MODEL, messages_create, response_text, response_stop_reason, wrap_message, wrap_tool_result, extract_blocks
 from agent_state import WorkingMemory, RuleEngine, check_constraints
 
 # ---------------------------------------------------------------------------
@@ -37,8 +37,6 @@ REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(WORKSPACE.parent.parent)))
 BRANCH_NAME = os.environ.get("BRANCH_NAME", "")
 REPO_SLUG = os.environ.get("REPO_SLUG", "")
 WORKSPACE_SUBDIR = os.environ.get("WORKSPACE_SUBDIR", WORKSPACE.name)
-
-client  # noqa: F401 — imported for side-effects (provider init in llm.py)
 
 # ---------------------------------------------------------------------------
 # Docker helpers
