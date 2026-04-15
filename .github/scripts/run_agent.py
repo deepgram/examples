@@ -586,6 +586,11 @@ def run_agent() -> None:
 
         messages.append(wrap_message("assistant", blocks))
 
+        # Truncate history to prevent context overflow — keep system + last 30 messages
+        if len(messages) > 31:
+            system = messages[0]
+            messages = [system] + messages[-30:]
+
         text_content = response_text(response)
 
         # ----------------------------------------------------------------
