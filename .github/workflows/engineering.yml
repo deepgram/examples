@@ -308,8 +308,9 @@ jobs:
         run: |
           set +e
           # Strip bytecode from previous runs — stale __pycache__ causes permission errors
-          find "$WORKSPACE_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-          find "$WORKSPACE_DIR" -name "*.pyc" -delete 2>/dev/null || true
+          # Files may be root-owned from Docker runs, use sudo
+          sudo find "$WORKSPACE_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          sudo find "$WORKSPACE_DIR" -name "*.pyc" -delete 2>/dev/null || true
           python3 .github/scripts/run_agent.py
           agent_exit=$?
           echo "agent_exit=$agent_exit" >> "$GITHUB_OUTPUT"
