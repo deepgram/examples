@@ -685,6 +685,7 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.openai.com/v1' }}
           LLM_MODEL: ${{ secrets.LLM_MODEL || 'gpt-5.4' }}
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          GH_BOT_LOGIN: ${{ secrets.GH_BOT_LOGIN || 'github-actions[bot]' }}
         run: |
           set +e
           python3 .github/scripts/run_engineering_agent.py

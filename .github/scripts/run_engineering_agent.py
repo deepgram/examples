@@ -25,6 +25,7 @@ PRIOR_STATE = os.environ.get("PRIOR_STATE", "").strip()
 COMMENT_URL = os.environ.get("COMMENT_URL", "")
 WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "")
 REPO_ROOT = os.environ.get("REPO_ROOT", "")
+GH_BOT_LOGIN = os.environ.get("GH_BOT_LOGIN", "github-actions[bot]")
 
 
 def run_command(cmd: str, timeout: int = 300) -> dict:
@@ -40,6 +41,9 @@ def post_comment(body: str) -> None:
     run_command(
         f"gh issue comment {ISSUE_NUMBER} --repo {REPO_SLUG} --body '{body_quoted}'"
     )
+
+
+BOT_SIGNATURE = f"<!-- {GH_BOT_LOGIN} -->"
 
 
 TOOLS = [
@@ -220,10 +224,10 @@ def build_user_message() -> str:
         except Exception:
             pass
     parts.append(
-        "\n\nAct on the request above. When done, post a summary reply on "
+        f"\n\nAct on the request above. When done, post a summary reply on "
         f"#{ISSUE_NUMBER} using:\n\n"
-        "```bash\n"
-        f"gh issue comment {ISSUE_NUMBER} --repo {REPO_SLUG} --body 'YOUR SUMMARY'\n"
+        f"```bash\n"
+        f"gh issue comment {ISSUE_NUMBER} --repo {REPO_SLUG} --body 'YOUR SUMMARY {BOT_SIGNATURE}'\n"
         "```"
     )
     return "\n".join(parts)
