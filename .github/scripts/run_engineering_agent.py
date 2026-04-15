@@ -28,6 +28,7 @@ REPO_ROOT = os.environ.get("REPO_ROOT", "")
 
 
 def run_command(cmd: str, timeout: int = 300) -> dict:
+    cmd = cmd.replace("\x00", "")
     result = subprocess.run(
         cmd, shell=True, capture_output=True, text=True, timeout=timeout
     )
