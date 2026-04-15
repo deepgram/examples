@@ -256,7 +256,6 @@ def run() -> None:
             print(f"Unexpected stop reason: {stop_reason}")
             break
 
-        tool_results = []
         for block in blocks:
             if block.get("type") != "tool_use":
                 continue
@@ -264,9 +263,12 @@ def run() -> None:
             inp = block.get("input", {})
             block_id = block.get("id", "")
             result = dispatch_tool(name, inp)
-            tool_results.append(wrap_tool_result(block_id, result))
-
-        messages.append(wrap_message("user", tool_results))
+            # OpenAI Chat Completions: role=tool, not in content array
+            messages.append({
+                "role": "tool",
+                "tool_call_id": block_id,
+                "content": result,
+            })
 
     print("Turn limit reached")
 

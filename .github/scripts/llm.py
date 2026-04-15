@@ -221,47 +221,28 @@ def wrap_message(role: str, content) -> dict:
         return {"role": role, "content": content}
 
     msg = {"role": role}
-    text_parts = []
-    tool_results = []
     tool_calls = []
+    text_parts = []
 
     for item in content:
         if isinstance(item, dict):
-            item_type = item.get("type", "")
-            if item_type == "text":
-                text_parts.append(item["text"])
-            elif item_type == "tool_result":
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_call_id": item["tool_call_id"],
-                    "content": item["content"],
-                })
-            elif item_type == "tool_use":
+            if item.get("type") == "tool_use":
                 args = item["input"]
-                if isinstance(args, str):
-                    args_json = args
-                else:
-                    args_json = json.dumps(args)
+                args_json = args if isinstance(args, str) else json.dumps(args)
                 tool_calls.append({
                     "id": item["id"],
                     "type": "function",
-                    "function": {
-                        "name": item["name"],
-                        "arguments": args_json,
-                    },
+                    "function": {"name": item["name"], "arguments": args_json},
                 })
+            elif item.get("type") == "text":
+                text_parts.append(item["text"])
         else:
             text_parts.append(str(item))
 
-    if text_parts and not tool_calls and not tool_results:
-        msg["content"] = "\n".join(text_parts)
-    elif text_parts or tool_results:
-        msg["content"] = (
-            [{"type": "text", "text": p} for p in text_parts if p]
-            + tool_results
-        )
     if tool_calls:
         msg["tool_calls"] = tool_calls
+    if text_parts:
+        msg["content"] = "\n".join(text_parts)
 
     return msg
 
