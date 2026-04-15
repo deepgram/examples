@@ -237,7 +237,7 @@ def run() -> None:
         print(f"Turn {turn}/150")
         response = messages_create(
             model=MODEL,
-            max_tokens=8096,
+            max_tokens=16384,
             system=system_prompt,
             tools=TOOLS,
             messages=messages,
