@@ -5,7 +5,7 @@ const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 
-const deepgram = new Deepgram({ apiKey: DEEPGRAM_API_KEY });
+const deepgram = new Deepgram(DEEPGRAM_API_KEY);
 
 const main = async () => {
   console.log('Initializing LiveKit Agent with Deepgram...');
