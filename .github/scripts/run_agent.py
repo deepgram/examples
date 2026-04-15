@@ -600,10 +600,15 @@ def run_agent() -> None:
 
         messages.append(wrap_message("assistant", blocks))
 
-        # Truncate history to prevent context overflow — keep system + last 20
-        # messages. This is ~10 turns which is enough context for the agent.
+        # Truncate history to prevent context overflow — keep last 20 messages
+        # plus the initial context. But don't orphan tool_results: OpenAI requires
+        # every role=tool message to match a preceding assistant tool_calls.
         if len(messages) > 21:
-            messages = [messages[0]] + messages[-20:]
+            kept = [messages[0]] + messages[-20:]
+            # Strip trailing tool result messages whose parent assistant was cut
+            while kept and kept[-1].get("role") == "tool":
+                kept.pop()
+            messages = kept
 
         text_content = response_text(response)
 
