@@ -798,12 +798,15 @@ def run_agent() -> None:
 
         checkpoint_progress(wm, turn, reason="turn")
 
-        # Truncate history AFTER all tool results are added to prevent orphaning.
-        # OpenAI requires every role=tool message to have a preceding assistant
-        # message with matching tool_calls. Truncating here (end of turn, after all
-        # processing) ensures complete tool call rounds are always kept intact.
+        # Truncate history AFTER all tool results are added. OpenAI requires every
+        # role=tool message to have a preceding assistant tool_calls message. If a
+        # naive tail slice starts on a tool result, drop leading tool messages from
+        # the retained tail so we never orphan them.
         if len(messages) > 21:
-            messages = [messages[0]] + messages[-20:]
+            tail = messages[-20:]
+            while tail and tail[0].get("role") == "tool":
+                tail = tail[1:]
+            messages = [messages[0]] + tail
 
 
 # ---------------------------------------------------------------------------
