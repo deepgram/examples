@@ -8,6 +8,7 @@ is built, tested, and passing. Stops on AGENT_DONE or turn limit.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(WORKSPACE.parent.parent)))
 BRANCH_NAME = os.environ.get("BRANCH_NAME", "")
 REPO_SLUG = os.environ.get("REPO_SLUG", "")
 WORKSPACE_SUBDIR = os.environ.get("WORKSPACE_SUBDIR", WORKSPACE.name)
+RUNTIME = os.environ.get("RUNTIME", "")
 
 # ---------------------------------------------------------------------------
 # Docker helpers
@@ -145,16 +147,20 @@ def collect_agent_state(wm: WorkingMemory, turns_used: int) -> dict[str, Any]:
     phases: list[str] = []
     files_written: list[str] = []
     last_test_output = ""
+    last_test_command = ""
+    last_test_exit_code: int | None = None
 
     for (predicate, args), value in wm._facts.items():
         if predicate == "phase" and args:
             phases.append(str(args[0]))
         elif predicate == "file_written" and args:
             files_written.append(str(args[0]))
-        elif predicate == "last_test_output" and args:
-            last_test_output = str(args[0])
         elif predicate == "last_test_output" and isinstance(value, str):
             last_test_output = value
+        elif predicate == "last_test_command" and isinstance(value, str):
+            last_test_command = value
+        elif predicate == "last_test_exit_code" and isinstance(value, int):
+            last_test_exit_code = value
 
     return {
         "turns_used": turns_used,
@@ -162,6 +168,8 @@ def collect_agent_state(wm: WorkingMemory, turns_used: int) -> dict[str, Any]:
         "phases": sorted(set(phases)),
         "tests_passing": bool(wm.query("tests_passing")),
         "tests_failing": bool(wm.query("tests_failing")),
+        "last_test_command": last_test_command,
+        "last_test_exit_code": last_test_exit_code,
         "last_test_output": last_test_output,
         "files_written": sorted(set(files_written)),
         "example_number": EXAMPLE_NUMBER,
@@ -170,6 +178,124 @@ def collect_agent_state(wm: WorkingMemory, turns_used: int) -> dict[str, Any]:
         "workspace_subdir": WORKSPACE_SUBDIR,
         "docker_image": DOCKER_IMAGE,
     }
+
+
+def sync_pr_state(state: dict[str, Any], turn: int, reason: str) -> None:
+    if not REPO_SLUG or not os.environ.get("GH_TOKEN"):
+        return
+
+    pr_lookup = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            REPO_SLUG,
+            "--head",
+            BRANCH_NAME,
+            "--state",
+            "open",
+            "--json",
+            "number,body",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        prs = json.loads(pr_lookup.stdout or "[]")
+    except json.JSONDecodeError:
+        prs = []
+
+    hidden_state = json.dumps(state, separators=(",", ":"))
+    extra_context = textwrap.dedent(f"""
+    <!-- extra context goes here
+    originating_issue: #{ISSUE_NUMBER}
+    action: {WORKSPACE_ACTION}
+    runtime: {RUNTIME}
+    example: {WORKSPACE_SUBDIR}
+    original_issue_body:
+    {ISSUE_BODY.strip()}
+    -->
+    """).strip()
+    state_comment = f"<!-- agent-state: {hidden_state} -->"
+
+    if prs:
+        pr_number = str(prs[0]["number"])
+        body = prs[0].get("body", "") or ""
+        if "<!-- extra context goes here" not in body:
+            body = body.rstrip() + "\n\n" + extra_context
+        if re.search(r"<!-- agent-state: .*? -->", body, re.DOTALL):
+            body = re.sub(
+                r"<!-- agent-state: .*? -->",
+                state_comment,
+                body,
+                count=1,
+                flags=re.DOTALL,
+            )
+        else:
+            body = body.rstrip() + "\n\n" + state_comment
+
+        body_path = Path("/tmp/pr-body-checkpoint.md")
+        body_path.write_text(body)
+        subprocess.run(
+            [
+                "gh",
+                "pr",
+                "edit",
+                pr_number,
+                "--repo",
+                REPO_SLUG,
+                "--body-file",
+                str(body_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return
+
+    title_prefix = "update" if WORKSPACE_ACTION == "modify" else "add"
+    body = textwrap.dedent(f"""
+    Relates to #{ISSUE_NUMBER}
+
+    ## Status
+    - Pipeline state: partial progress saved, awaiting continuation or review
+    - Action: {WORKSPACE_ACTION.capitalize()}
+    - Runtime: `{RUNTIME or 'unknown'}`
+    - Example: `{WORKSPACE_SUBDIR}`
+    - Turns used: `{turn}`
+
+    This PR stays draft while the engineering loop iterates. Comment `@deepgram-robot continue` to start another lap.
+
+    {extra_context}
+    {state_comment}
+    """).strip()
+    create_pr = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "create",
+            "--repo",
+            REPO_SLUG,
+            "--head",
+            BRANCH_NAME,
+            "--base",
+            "main",
+            "--title",
+            f"feat(examples): {title_prefix} {WORKSPACE_SUBDIR}",
+            "--body",
+            body,
+            "--draft",
+            "--label",
+            "type:example",
+            "--label",
+            "automated",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if create_pr.returncode == 0:
+        log(f"Opened draft PR from checkpoint turn {turn}", level="system")
 
 
 def clean_workspace_artifacts() -> None:
@@ -211,101 +337,65 @@ def checkpoint_progress(wm: WorkingMemory, turn: int, reason: str = "checkpoint"
         capture_output=True,
         text=True,
     )
-    if not status.stdout.strip():
-        return
+    if status.stdout.strip():
+        subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "add", str(workspace_rel)],
+            check=True,
+        )
 
-    subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "add", str(workspace_rel)],
-        check=True,
-    )
-
-    cached_diff = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "diff", "--cached", "--quiet", "--", str(workspace_rel)],
-        capture_output=True,
-        text=True,
-    )
-    if cached_diff.returncode == 0:
-        return
-
-    commit_message = (
-        f"chore(examples): checkpoint {WORKSPACE_SUBDIR} turn {turn}\n\n"
-        f"Relates to #{ISSUE_NUMBER}"
-    )
-    commit = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "commit", "-m", commit_message],
-        capture_output=True,
-        text=True,
-    )
-    if commit.returncode != 0:
-        output = (commit.stdout + commit.stderr).lower()
-        if "nothing to commit" in output:
-            return
-        log(f"Checkpoint commit failed during {reason}: {(commit.stderr or commit.stdout)[:400]}", level="error")
-        return
-
-    push = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "push", "origin", f"HEAD:{BRANCH_NAME}"],
-        capture_output=True,
-        text=True,
-    )
-    if push.returncode != 0:
-        subprocess.run(["git", "-C", str(REPO_ROOT), "fetch", "origin", BRANCH_NAME], check=False)
-        rebase = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "rebase", f"origin/{BRANCH_NAME}"],
+        cached_diff = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "diff", "--cached", "--quiet", "--", str(workspace_rel)],
             capture_output=True,
             text=True,
         )
-        if rebase.returncode != 0:
-            log(f"Checkpoint rebase failed during {reason}: {(rebase.stderr or rebase.stdout)[:400]}", level="error")
-            return
-        retry = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "push", "origin", f"HEAD:{BRANCH_NAME}"],
-            capture_output=True,
-            text=True,
-        )
-        if retry.returncode != 0:
-            log(f"Checkpoint push failed during {reason}: {(retry.stderr or retry.stdout)[:400]}", level="error")
-            return
-
-    if REPO_SLUG and os.environ.get("GH_TOKEN"):
-        existing_pr = subprocess.run(
-            [
-                "gh", "pr", "list",
-                "--repo", REPO_SLUG,
-                "--head", BRANCH_NAME,
-                "--state", "open",
-                "--json", "url",
-                "-q", ".[0].url",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if not existing_pr.stdout.strip():
-            title_prefix = "update" if WORKSPACE_ACTION == "modify" else "add"
-            hidden_state = json.dumps(state, separators=(",", ":"))
-            body = (
-                f"Part of #{ISSUE_NUMBER} — build in progress.\n\n"
-                f"> WIP checkpoint created automatically after turn {turn}.\n\n"
-                f"Comment `@deepgram-robot continue` to resume from the current state.\n\n"
-                f"<!-- agent-state: {hidden_state} -->"
+        if cached_diff.returncode != 0:
+            commit_message = (
+                f"chore(examples): checkpoint {WORKSPACE_SUBDIR} turn {turn}\n\n"
+                f"Relates to #{ISSUE_NUMBER}"
             )
-            create_pr = subprocess.run(
-                [
-                    "gh", "pr", "create",
-                    "--repo", REPO_SLUG,
-                    "--head", BRANCH_NAME,
-                    "--base", "main",
-                    "--title", f"feat(examples): {title_prefix} {WORKSPACE_SUBDIR} [WIP]",
-                    "--body", body,
-                    "--draft",
-                    "--label", "type:example",
-                    "--label", "automated",
-                ],
+            commit = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "commit", "-m", commit_message],
                 capture_output=True,
                 text=True,
             )
-            if create_pr.returncode == 0:
-                log(f"Opened draft PR from checkpoint turn {turn}", level="system")
+            if commit.returncode != 0:
+                output = (commit.stdout + commit.stderr).lower()
+                if "nothing to commit" not in output:
+                    log(
+                        f"Checkpoint commit failed during {reason}: {(commit.stderr or commit.stdout)[:400]}",
+                        level="error",
+                    )
+            else:
+                push = subprocess.run(
+                    ["git", "-C", str(REPO_ROOT), "push", "origin", f"HEAD:{BRANCH_NAME}"],
+                    capture_output=True,
+                    text=True,
+                )
+                if push.returncode != 0:
+                    subprocess.run(["git", "-C", str(REPO_ROOT), "fetch", "origin", BRANCH_NAME], check=False)
+                    rebase = subprocess.run(
+                        ["git", "-C", str(REPO_ROOT), "rebase", f"origin/{BRANCH_NAME}"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if rebase.returncode != 0:
+                        log(
+                            f"Checkpoint rebase failed during {reason}: {(rebase.stderr or rebase.stdout)[:400]}",
+                            level="error",
+                        )
+                    else:
+                        retry = subprocess.run(
+                            ["git", "-C", str(REPO_ROOT), "push", "origin", f"HEAD:{BRANCH_NAME}"],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if retry.returncode != 0:
+                            log(
+                                f"Checkpoint push failed during {reason}: {(retry.stderr or retry.stdout)[:400]}",
+                                level="error",
+                            )
+
+    sync_pr_state(state, turn, reason)
 
     log(f"Checkpointed progress at turn {turn} ({reason})", level="system")
 
@@ -434,9 +524,6 @@ set -e
 if ! command -v deepgram &> /dev/null; then
   curl -fsSL https://raw.githubusercontent.com/deepgram/deepgram-cli/main/install.sh | sh
 fi
-
-# LLM provider clients — install all since provider is a runtime config knob
-pip install anthropic openai google-genai --quiet 2>/dev/null || true
 
 # Playwright (Python)
 pip install playwright --quiet 2>/dev/null || true

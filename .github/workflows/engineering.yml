@@ -52,6 +52,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          token: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0  # Full clone so feature branches are available for checkout
 
       # ------------------------------------------------------------------
@@ -63,7 +64,7 @@ jobs:
       - name: Resolve issue
         id: issue
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           EVENT="${{ github.event_name }}"
           INPUT_NUM="${{ inputs.issue_number }}"
@@ -139,7 +140,7 @@ jobs:
       - name: Label build in progress
         if: steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh issue edit ${{ steps.issue.outputs.number }} \
             --repo "${{ github.repository }}" \
@@ -175,14 +176,7 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
-      # 4. Install Python dependencies
-      # ------------------------------------------------------------------
-      - name: Install Python dependencies
-        if: steps.issue.outputs.skip != 'true'
-        run: pip install anthropic --quiet
-
-      # ------------------------------------------------------------------
-      # 5. Planning phase — detect runtime, slug, action, required secrets
+      # 4. Planning phase — detect runtime, slug, action, required secrets
       # ------------------------------------------------------------------
       - name: Plan example
         id: plan
@@ -219,7 +213,8 @@ jobs:
         id: branch_ctx
         if: steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_BOT_LOGIN: ${{ secrets.GH_BOT_LOGIN || 'github-actions[bot]' }}
           WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
           WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
         run: |
@@ -230,8 +225,8 @@ jobs:
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "$GH_BOT_LOGIN"
+          git config user.email "$GH_BOT_LOGIN@users.noreply.github.com"
 
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             git fetch origin "$branch"
@@ -257,7 +252,70 @@ jobs:
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
-      # 7. Build filtered env file (only required secrets, values injected)
+      # 7. Create or reuse the draft PR before the agent starts looping
+      # ------------------------------------------------------------------
+      - name: Ensure draft pull request exists
+        id: kickoff_pr
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO_SLUG: ${{ github.repository }}
+          BRANCH_NAME: ${{ steps.branch_ctx.outputs.branch }}
+          WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
+          WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
+          RUNTIME: ${{ steps.plan.outputs.runtime }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          ISSUE_BODY: ${{ steps.issue.outputs.body }}
+          WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
+        run: |
+          if [ "$WORKSPACE_ACTION" = "modify" ]; then
+            title_base="update ${WORKSPACE_SUBDIR}"
+          else
+            title_base="add ${WORKSPACE_SUBDIR}"
+          fi
+
+          if [ -n "${{ steps.branch_ctx.outputs.pr_number }}" ]; then
+            echo "url=${{ steps.branch_ctx.outputs.pr_url }}" >> "$GITHUB_OUTPUT"
+            echo "number=${{ steps.branch_ctx.outputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 -c "from pathlib import Path; import json; Path('/tmp/agent-state.json').write_text(json.dumps({'turns_used': 0, 'max_turns': 150, 'phases': [], 'tests_passing': False, 'tests_failing': False, 'last_test_command': '', 'last_test_exit_code': None, 'last_test_output': '', 'files_written': []}, indent=2))"
+
+          python3 .github/scripts/build_pr_body.py \
+            --workspace "$WORKSPACE_DIR" \
+            --issue "$ISSUE_NUMBER" \
+            --issue-body "$ISSUE_BODY" \
+            --action "$WORKSPACE_ACTION" \
+            --runtime "$RUNTIME" \
+            --example "$WORKSPACE_SUBDIR" \
+            --build-log /tmp/build-log.md \
+            --agent-state /tmp/agent-state.json \
+            --bootstrap >/dev/null
+
+          ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null || printf '0')
+          if [ "$ahead" -eq 0 ]; then
+            git commit --allow-empty -m "chore(examples): start ${WORKSPACE_SUBDIR}
+
+            Relates to #${ISSUE_NUMBER}"
+          fi
+
+          git push -u origin "HEAD:${BRANCH_NAME}"
+
+          url=$(gh pr create \
+            --repo "$REPO_SLUG" \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --title "feat(examples): ${title_base}" \
+            --body-file /tmp/pr-body.md \
+            --draft)
+          number=$(gh pr view "$url" --repo "$REPO_SLUG" --json number -q .number)
+          gh pr edit "$number" --repo "$REPO_SLUG" --add-label "type:example" --add-label "automated" >/dev/null 2>&1 || true
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 8. Build filtered env file (only required secrets, values injected)
       # ------------------------------------------------------------------
       - name: Build sandbox env file
         if: steps.issue.outputs.skip != 'true'
@@ -273,14 +331,14 @@ jobs:
           echo "Env file written with $(wc -l < /tmp/sandbox.env) secrets"
 
       # ------------------------------------------------------------------
-      # 8. Pull Docker image
+      # 9. Pull Docker image
       # ------------------------------------------------------------------
       - name: Pull sandbox image
         if: steps.issue.outputs.skip != 'true'
         run: docker pull ${{ steps.plan.outputs.docker_image }}
 
       # ------------------------------------------------------------------
-      # 9. Run the agent build loop
+      # 10. Run the agent build loop
       #    exit 0 = complete, exit 2 = turn limit (draft PR), exit 1 = error
       # ------------------------------------------------------------------
       - name: Run agent
@@ -292,7 +350,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.openai.com/v1' }}
           LLM_MODEL: ${{ secrets.LLM_MODEL || 'gpt-5.4' }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           ISSUE_BODY: ${{ steps.issue.outputs.body }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           EXAMPLE_NUMBER: ${{ steps.example_number.outputs.number }}
@@ -300,6 +358,7 @@ jobs:
           WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
           WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
           DOCKER_IMAGE: ${{ steps.plan.outputs.docker_image }}
+          RUNTIME: ${{ steps.plan.outputs.runtime }}
           WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
           EXAMPLES_DIR: ${{ github.workspace }}
           REPO_ROOT: ${{ github.workspace }}
@@ -331,7 +390,7 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
-      # 10. Commit any residual changes not already checkpointed
+      # 11. Commit any residual changes not already checkpointed
       # ------------------------------------------------------------------
       - name: Commit and push residual changes
         if: steps.issue.outputs.skip != 'true'
@@ -374,15 +433,13 @@ jobs:
           }
 
       # ------------------------------------------------------------------
-      # 11. Upsert PR from the working branch
-      #     - complete build   -> ready PR
-      #     - incomplete/error -> draft PR (if branch has commits)
+      # 12. Update the draft PR with final state and test output
       # ------------------------------------------------------------------
       - name: Upsert pull request
         id: pr
         if: steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           REPO_SLUG: ${{ github.repository }}
           BRANCH_NAME: ${{ steps.branch_ctx.outputs.branch }}
           WORKSPACE_SUBDIR: ${{ steps.plan.outputs.workspace_subdir }}
@@ -392,6 +449,8 @@ jobs:
           WORKSPACE_ACTION: ${{ steps.plan.outputs.action }}
           WORKSPACE_DIR: ${{ github.workspace }}/examples/${{ steps.plan.outputs.workspace_subdir }}
           AGENT_EXIT: ${{ steps.agent_exit.outputs.code }}
+          EXISTING_PR_NUMBER: ${{ steps.kickoff_pr.outputs.number || steps.branch_ctx.outputs.pr_number }}
+          EXISTING_PR_URL: ${{ steps.kickoff_pr.outputs.url || steps.branch_ctx.outputs.pr_url }}
         run: |
           if [ "$WORKSPACE_ACTION" = "modify" ]; then
             title_base="update ${WORKSPACE_SUBDIR}"
@@ -408,9 +467,10 @@ jobs:
               --action "$WORKSPACE_ACTION" \
               --runtime "$RUNTIME" \
               --example "$WORKSPACE_SUBDIR" \
-              --build-log /tmp/build-log.md)
+              --build-log /tmp/build-log.md \
+              --agent-state /tmp/agent-state.json)
           else
-            pr_title="feat(examples): ${title_base} [WIP]"
+            pr_title="feat(examples): ${title_base}"
             needs_creds=$(python3 .github/scripts/build_pr_body.py \
               --workspace "$WORKSPACE_DIR" \
               --issue "$ISSUE_NUMBER" \
@@ -419,27 +479,28 @@ jobs:
               --runtime "$RUNTIME" \
               --example "$WORKSPACE_SUBDIR" \
               --build-log /tmp/build-log.md \
+              --agent-state /tmp/agent-state.json \
               --incomplete)
           fi
 
-          if [ "$AGENT_EXIT" != "0" ] && [ -f /tmp/agent-state.json ]; then
-            hidden_state=$(python3 -c "import json; print(json.dumps(json.load(open('/tmp/agent-state.json')), separators=(',',':')))" )
-            printf "\n\n<!-- agent-state: %s -->\n" "$hidden_state" >> /tmp/pr-body.md
+          existing_number="$EXISTING_PR_NUMBER"
+          existing_url="$EXISTING_PR_URL"
+          if [ -z "$existing_number" ]; then
+            existing_number=$(gh pr list \
+              --repo "$REPO_SLUG" \
+              --head "$BRANCH_NAME" \
+              --state open \
+              --json number \
+              -q '.[0].number' 2>/dev/null || true)
           fi
-
-          existing_number=$(gh pr list \
-            --repo "$REPO_SLUG" \
-            --head "$BRANCH_NAME" \
-            --state open \
-            --json number \
-            -q '.[0].number' 2>/dev/null || true)
-          existing_url=$(gh pr list \
-            --repo "$REPO_SLUG" \
-            --head "$BRANCH_NAME" \
-            --state open \
-            --json url \
-            -q '.[0].url' 2>/dev/null || true)
-          commit_count=$(git rev-list --count origin/main..HEAD 2>/dev/null || printf '0')
+          if [ -z "$existing_url" ]; then
+            existing_url=$(gh pr list \
+              --repo "$REPO_SLUG" \
+              --head "$BRANCH_NAME" \
+              --state open \
+              --json url \
+              -q '.[0].url' 2>/dev/null || true)
+          fi
 
           if [ -n "$existing_number" ]; then
             gh pr edit "$existing_number" \
@@ -450,37 +511,18 @@ jobs:
             if [ "$needs_creds" = "needs-credentials" ]; then
               gh pr edit "$existing_number" --repo "$REPO_SLUG" --add-label "needs-credentials" >/dev/null 2>&1 || true
             fi
-            if [ "$AGENT_EXIT" = "0" ]; then
-              gh pr ready "$existing_number" --repo "$REPO_SLUG" >/dev/null 2>&1 || true
-            fi
             echo "url=$existing_url" >> "$GITHUB_OUTPUT"
             echo "number=$existing_number" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$commit_count" -eq 0 ]; then
-            echo "No commits on working branch — skipping PR creation"
-            echo "url=" >> "$GITHUB_OUTPUT"
-            echo "number=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$AGENT_EXIT" = "0" ]; then
-            url=$(gh pr create \
-              --repo "$REPO_SLUG" \
-              --head "$BRANCH_NAME" \
-              --base main \
-              --title "$pr_title" \
-              --body-file /tmp/pr-body.md)
-          else
-            url=$(gh pr create \
-              --repo "$REPO_SLUG" \
-              --head "$BRANCH_NAME" \
-              --base main \
-              --title "$pr_title" \
-              --body-file /tmp/pr-body.md \
-              --draft)
-          fi
+          url=$(gh pr create \
+            --repo "$REPO_SLUG" \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --title "$pr_title" \
+            --body-file /tmp/pr-body.md \
+            --draft)
 
           pr_number=$(gh pr view "$url" --repo "$REPO_SLUG" --json number -q .number 2>/dev/null || true)
           gh pr edit "$pr_number" --repo "$REPO_SLUG" --add-label "type:example" --add-label "automated" >/dev/null 2>&1 || true
@@ -491,27 +533,27 @@ jobs:
           echo "number=$pr_number" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
-      # 12. Comment on issue with completion / continuation status
+      # 13. Comment on issue with completion / continuation status
       # ------------------------------------------------------------------
       - name: Comment on issue (complete)
         if: steps.issue.outputs.skip != 'true' && steps.agent_exit.outputs.code == '0' && steps.pr.outputs.url != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
           gh issue comment "$ISSUE_NUMBER" \
             --repo "${{ github.repository }}" \
-            --body "✅ Example built and PR opened: ${PR_URL}
+            --body "✅ Draft PR updated and ready for human review: ${PR_URL}
 
-          Review the PR before merging.
+          The engineering loop finished with passing tests and the PR remains draft for human review.
 
           <!-- pr-opened -->"
 
       - name: Comment on issue (incomplete)
         if: steps.issue.outputs.skip != 'true' && steps.agent_exit.outputs.code != '0' && steps.pr.outputs.url != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
           AGENT_EXIT: ${{ steps.agent_exit.outputs.code }}
@@ -542,7 +584,7 @@ jobs:
       - name: Comment on issue (hard failure without PR)
         if: steps.issue.outputs.skip != 'true' && steps.agent_exit.outputs.code == '1' && steps.pr.outputs.url == ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
         run: |
           gh issue comment "$ISSUE_NUMBER" \
@@ -555,7 +597,7 @@ jobs:
       - name: Remove build-in-progress label
         if: always() && steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh issue edit ${{ steps.issue.outputs.number }} \
             --repo "${{ github.repository }}" \
@@ -588,7 +630,7 @@ jobs:
       - name: Check commenter org membership
         id: auth
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           COMMENTER="${{ github.event.comment.user.login }}"
 
@@ -615,33 +657,47 @@ jobs:
         id: ctx
         if: steps.auth.outputs.allowed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           EVENT="${{ github.event_name }}"
+          pr_number=""
 
           if [ "$EVENT" = "pull_request_review_comment" ]; then
             number="${{ github.event.pull_request.number }}"
+            pr_number="$number"
             branch="${{ github.event.pull_request.head.ref }}"
             context_type="PR"
           else
             # issue_comment — could be on an issue or a PR
             number="${{ github.event.issue.number }}"
             branch=$(gh pr view "$number" --json headRefName -q .headRefName 2>/dev/null || true)
+            pr_number="$number"
             if [ -n "$branch" ]; then
               context_type="PR"
             else
-              branch="main"
-              context_type="issue"
+              linked_pr=$(gh api search/issues \
+                -f q="repo:${{ github.repository }} is:pr is:open \"Relates to #${number}\" in:body" \
+                2>/dev/null || echo '{"items": []}')
+              pr_number=$(echo "$linked_pr" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items', []); print(items[0]['number'] if items else '')")
+              if [ -n "$pr_number" ]; then
+                branch=$(gh pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null || true)
+                context_type="PR"
+              else
+                pr_number=""
+                branch="main"
+                context_type="issue"
+              fi
             fi
           fi
 
           echo "number=$number"             >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number"       >> "$GITHUB_OUTPUT"
           echo "branch=$branch"             >> "$GITHUB_OUTPUT"
           echo "context_type=$context_type" >> "$GITHUB_OUTPUT"
 
           # Fetch full PR body for context — contains original issue, extra context, agent state
-          if [ "$context_type" = "PR" ]; then
-            pr_body=$(gh pr view "$number" \
+          if [ "$context_type" = "PR" ] && [ -n "$pr_number" ]; then
+            pr_body=$(gh pr view "$pr_number" \
               --repo "${{ github.repository }}" \
               --json body \
               -q '.body' 2>/dev/null || echo '')
@@ -665,14 +721,17 @@ jobs:
         if: steps.auth.outputs.allowed == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          token: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           ref: ${{ steps.ctx.outputs.branch }}
           fetch-depth: 0  # Full clone so the target branch is available
 
       - name: Configure git
         if: steps.auth.outputs.allowed == 'true'
+        env:
+          GH_BOT_LOGIN: ${{ secrets.GH_BOT_LOGIN || 'github-actions[bot]' }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "$GH_BOT_LOGIN"
+          git config user.email "$GH_BOT_LOGIN@users.noreply.github.com"
 
       # ------------------------------------------------------------------
       # Run the engineering agent — full unrestricted access to the repo.
@@ -689,6 +748,7 @@ jobs:
           PR_BODY: ${{ steps.ctx.outputs.pr_body }}
           PRIOR_STATE: ${{ steps.ctx.outputs.prior_state }}
           COMMENT_URL: ${{ github.event.comment.html_url }}
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           LLM_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.openai.com/v1' }}
           LLM_MODEL: ${{ secrets.LLM_MODEL || 'gpt-5.4' }}

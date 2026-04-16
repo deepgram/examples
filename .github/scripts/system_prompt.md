@@ -20,6 +20,16 @@ Check context7 docs before starting to confirm the correct SDK version, import p
 
 ---
 
+## Non-negotiable product rules
+
+- Every example must demonstrate **Deepgram plus the target third-party/platform/service in the same working flow**. A Deepgram-only example is invalid. A third-party-only example is invalid.
+- The example must use either a Deepgram-enabled partner integration or an official Deepgram SDK. No raw HTTP to Deepgram. No unrelated wrappers.
+- Tests must cover the functional code you add or change as completely as the environment allows. Prefer real integration tests where feasible, then add focused unit/smoke tests so the final test run meaningfully exercises the example.
+- You own the full engineering loop: ideate, implement, test, debug, fix, re-test, and self-review until the example is working.
+- Progress should be atomic. After each meaningful milestone, emit `AGENT_CHECKPOINT` so the system can persist work safely.
+
+---
+
 ## Credentials and integration strategy
 
 You have been given a filtered set of secrets as environment variables. These were selected because this example needs them. **Use them.** Real integrations are the goal.

@@ -41,7 +41,10 @@ class WorkingMemory:
                                          source, tests, api_verified
       tests_passing()           — last test run exited 0
       tests_failing()           — last test run exited non-0
-      last_test_output(text)    — stderr/stdout from last failing test run
+      last_test_command()       — the most recent test command that was run
+      last_test_exit_code()     — exit code of the most recent test command
+      last_test_output()        — literal stdout/stderr from the most recent
+                                  test command, whether it passed or failed
 
     Command history is tracked separately for anti-loop detection.
     """
@@ -114,14 +117,21 @@ class WorkingMemory:
             "gradle test",
         ]
         if any(runner in cmd for runner in test_runners):
+            output = (stdout or "")
+            if stderr:
+                output = f"{output}\n{stderr}" if output else stderr
+            self.assert_("last_test_command", value=cmd.strip())
+            self.assert_("last_test_exit_code", value=exit_code)
+            self.assert_(
+                "last_test_output",
+                value=(output.strip() or "(no test output captured)")[:4000],
+            )
             if exit_code == 0:
                 self.assert_("tests_passing")
                 self.retract("tests_failing")
-                self.retract("last_test_output")
             else:
                 self.assert_("tests_failing")
                 self.retract("tests_passing")
-                self.assert_("last_test_output", (stderr or stdout)[:1000])
 
         # API connectivity
         if ("deepgram" in cmd.lower() or cmd.startswith("dg ")) and exit_code == 0:

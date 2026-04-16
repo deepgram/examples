@@ -15,6 +15,6 @@ import re
 import sys
 
 text = sys.stdin.read().strip()
-m = re.search(r"<!-- agent-state: (\{.*?\}) -->", text, re.DOTALL)
+m = re.search(r"<!-- agent-state: (.*?) -->", text, re.DOTALL)
 if m:
-    print(m.group(1))
+    print(m.group(1).strip())
