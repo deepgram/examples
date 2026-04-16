@@ -70,7 +70,7 @@ jobs:
       - name: Resolve issue
         id: issue
         env:
-          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           EVENT="${{ github.event_name }}"
           INPUT_NUM="${{ inputs.issue_number }}"
@@ -146,7 +146,7 @@ jobs:
       - name: Label build in progress
         if: steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue edit ${{ steps.issue.outputs.number }} \
             --repo "${{ github.repository }}" \
@@ -603,7 +603,7 @@ jobs:
       - name: Remove build-in-progress label
         if: always() && steps.issue.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue edit ${{ steps.issue.outputs.number }} \
             --repo "${{ github.repository }}" \
@@ -636,7 +636,7 @@ jobs:
       - name: Check commenter org membership
         id: auth
         env:
-          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           COMMENTER="${{ github.event.comment.user.login }}"
 
@@ -678,7 +678,7 @@ jobs:
         id: ctx
         if: steps.auth.outputs.allowed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           EVENT="${{ github.event_name }}"
           pr_number=""
