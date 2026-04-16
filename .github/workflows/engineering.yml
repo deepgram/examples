@@ -55,6 +55,12 @@ jobs:
           token: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0  # Full clone so feature branches are available for checkout
 
+      - name: Snapshot workflow scripts
+        run: |
+          rm -rf /tmp/engineering-scripts
+          mkdir -p /tmp/engineering-scripts
+          cp -R .github/scripts/. /tmp/engineering-scripts/
+
       # ------------------------------------------------------------------
       # 1. Resolve which issue to work on
       #    - label event    → use the triggering issue
@@ -81,7 +87,7 @@ jobs:
               --label "type:suggestion" \
               --state open \
               --json number \
-              --limit 50 | python3 .github/scripts/find_unprocessed_issue.py \
+              --limit 50 | python3 /tmp/engineering-scripts/find_unprocessed_issue.py \
               --repo "${{ github.repository }}")
             if [ "$result" = "SKIP" ] || [ -z "$result" ]; then
               echo "No unprocessed suggestions found."
@@ -125,7 +131,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --json body,comments \
             --jq '([.body] + [.comments[].body]) | map(select(contains("<!-- agent-state:"))) | last' \
-            2>/dev/null | python3 .github/scripts/extract_agent_state.py || true)
+            2>/dev/null | python3 /tmp/engineering-scripts/extract_agent_state.py || true)
           echo "prior_state<<PRIOR_STATE_EOF" >> "$GITHUB_OUTPUT"
           echo "$prior_state" >> "$GITHUB_OUTPUT"
           echo "PRIOR_STATE_EOF" >> "$GITHUB_OUTPUT"
@@ -171,7 +177,7 @@ jobs:
         id: example_number
         if: steps.issue.outputs.skip != 'true'
         run: |
-          number=$(python3 .github/scripts/next_example_number.py \
+          number=$(python3 /tmp/engineering-scripts/next_example_number.py \
             --examples-dir examples)
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
@@ -191,7 +197,7 @@ jobs:
           SECRET_NAMES: ${{ steps.secret_names.outputs.names }}
           EXAMPLES_DIR: ${{ github.workspace }}/examples
         run: |
-          plan=$(python3 .github/scripts/plan_agent.py)
+          plan=$(python3 /tmp/engineering-scripts/plan_agent.py)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
 
           # Extract fields for subsequent steps
@@ -282,7 +288,7 @@ jobs:
 
           python3 -c "from pathlib import Path; import json; Path('/tmp/agent-state.json').write_text(json.dumps({'turns_used': 0, 'max_turns': 150, 'phases': [], 'tests_passing': False, 'tests_failing': False, 'last_test_command': '', 'last_test_exit_code': None, 'last_test_output': '', 'files_written': []}, indent=2))"
 
-          python3 .github/scripts/build_pr_body.py \
+          python3 /tmp/engineering-scripts/build_pr_body.py \
             --workspace "$WORKSPACE_DIR" \
             --issue "$ISSUE_NUMBER" \
             --issue-body "$ISSUE_BODY" \
@@ -323,7 +329,7 @@ jobs:
           ALL_SECRETS: ${{ toJSON(secrets) }}
           REQUIRED_SECRETS: ${{ steps.plan.outputs.required_secrets }}
         run: |
-          python3 .github/scripts/filter_secrets.py \
+          python3 /tmp/engineering-scripts/filter_secrets.py \
             --required "$REQUIRED_SECRETS" \
             --secrets-json "$ALL_SECRETS" \
             > /tmp/sandbox.env
@@ -374,7 +380,7 @@ jobs:
           # Files may be root-owned from Docker runs, use sudo
           sudo find "$WORKSPACE_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
           sudo find "$WORKSPACE_DIR" -name "*.pyc" -delete 2>/dev/null || true
-          python3 .github/scripts/run_agent.py
+          python3 /tmp/engineering-scripts/run_agent.py
           agent_exit=$?
           echo "agent_exit=$agent_exit" >> "$GITHUB_OUTPUT"
           exit "$agent_exit"
@@ -460,7 +466,7 @@ jobs:
 
           if [ "$AGENT_EXIT" = "0" ]; then
             pr_title="feat(examples): ${title_base}"
-            needs_creds=$(python3 .github/scripts/build_pr_body.py \
+            needs_creds=$(python3 /tmp/engineering-scripts/build_pr_body.py \
               --workspace "$WORKSPACE_DIR" \
               --issue "$ISSUE_NUMBER" \
               --issue-body "$ISSUE_BODY" \
@@ -471,7 +477,7 @@ jobs:
               --agent-state /tmp/agent-state.json)
           else
             pr_title="feat(examples): ${title_base}"
-            needs_creds=$(python3 .github/scripts/build_pr_body.py \
+            needs_creds=$(python3 /tmp/engineering-scripts/build_pr_body.py \
               --workspace "$WORKSPACE_DIR" \
               --issue "$ISSUE_NUMBER" \
               --issue-body "$ISSUE_BODY" \
@@ -650,6 +656,21 @@ jobs:
             echo "$COMMENTER is not a Deepgram org member — ignoring"
           fi
 
+      - name: Checkout workflow source
+        if: steps.auth.outputs.allowed == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Snapshot workflow scripts
+        if: steps.auth.outputs.allowed == 'true'
+        run: |
+          rm -rf /tmp/engineering-scripts
+          mkdir -p /tmp/engineering-scripts
+          cp -R .github/scripts/. /tmp/engineering-scripts/
+
       # ------------------------------------------------------------------
       # Resolve context: which issue/PR, which branch to check out
       # ------------------------------------------------------------------
@@ -714,7 +735,7 @@ jobs:
             --json body,comments \
             --jq '([.body] + [.comments[].body]) | map(select(contains("<!-- agent-state:"))) | last' \
             2>/dev/null | \
-            python3 .github/scripts/extract_agent_state.py || true)
+            python3 /tmp/engineering-scripts/extract_agent_state.py || true)
           echo "prior_state=$prior_state" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
@@ -756,6 +777,6 @@ jobs:
           GH_BOT_LOGIN: ${{ secrets.GH_BOT_LOGIN || 'github-actions[bot]' }}
         run: |
           set +e
-          python3 .github/scripts/run_engineering_agent.py
+          python3 /tmp/engineering-scripts/run_engineering_agent.py
           result=$?
           exit $result
