@@ -60,6 +60,29 @@
       align-items: center;
     }
 
+    #source-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 640px;
+      margin-bottom: 20px;
+    }
+
+    label { display: grid; gap: 6px; font-size: 13px; }
+
+    select, input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+      color: #fff;
+      padding: 10px 12px;
+      font: inherit;
+    }
+
+    [hidden] { display: none !important; }
+
     button {
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.2);
@@ -98,7 +121,22 @@
   <div class="logo">
     <h1>Deepgram Live Transcription</h1>
   </div>
-  <p class="subtitle">Tauri + Rust + Deepgram Nova-3</p>
+  <p class="subtitle">PocketStation + Tauri + Rust + Deepgram Nova-3</p>
+
+  <div id="source-controls">
+    <label>
+      Audio source
+      <select id="capture-source">
+        <option value="application">Running application</option>
+        <option value="system_audio">All system audio</option>
+        <option value="microphone">Default microphone</option>
+      </select>
+    </label>
+    <label id="application-row">
+      Application name or identifier
+      <input id="application" placeholder="Zoom" autocomplete="off" required>
+    </label>
+  </div>
 
   <div id="transcript-container">
     <div id="transcript">Click Start to begin transcription...</div>
@@ -107,6 +145,7 @@
   <div id="controls">
     <button id="btn-start">Start</button>
     <button id="btn-stop" disabled>Stop</button>
+    <button id="btn-copy">Copy transcript</button>
     <span id="status" class="status">disconnected</span>
   </div>
 

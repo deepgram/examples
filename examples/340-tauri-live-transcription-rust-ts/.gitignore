@@ -1,0 +1,5 @@
+.env
+src/dist/
+src/node_modules/
+src/src-tauri/gen/
+src/src-tauri/target/

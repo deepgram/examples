@@ -42,7 +42,7 @@ A collection of working examples showing how to use Deepgram SDKs with popular p
 | [290](examples/290-aws-lambda-python-transcription/) | AWS Lambda Serverless Audio Transcription | Python | AWS Lambda |
 | [300](examples/300-spring-boot-live-transcription-java/) | Spring Boot Real-Time Transcription with Deepgram | Java | Spring Boot |
 | [310](examples/310-crewai-voice-agents-python/) | CrewAI Voice-Enabled Multi-Agent System with Deepgram | Python | CrewAI |
-| [340](examples/340-tauri-live-transcription-rust-ts/) | Tauri Desktop Live Transcription | Python | Tauri |
+| [340](examples/340-tauri-live-transcription-rust-ts/) | Tauri Desktop Live Transcription | Rust | Tauri |
 | [350](examples/350-asterisk-freeswitch-deepgram-stt-python/) | Asterisk / FreeSWITCH PBX to Deepgram Streaming STT | Python | Asterisk/FreeSWITCH |
 | [360](examples/360-kotlin-android-live-transcription/) | Kotlin Android Live Transcription | Kotlin | Jetpack Compose |
 | [370](examples/370-swift-ios-live-transcription/) | Swift iOS Live Transcription | Swift | SwiftUI |
