@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-deepgram = "=0.10.1"
+deepgram = { version = "=0.10.1", default-features = false, features = ["listen"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 tauri = { version = "=2.11.5", features = [] }
