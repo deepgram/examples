@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 const transcriptEl = document.getElementById("transcript")!;
 const btnStart = document.getElementById("btn-start") as HTMLButtonElement;
 const btnStop = document.getElementById("btn-stop") as HTMLButtonElement;
+const btnPause = document.getElementById("btn-pause") as HTMLButtonElement;
 const btnCopy = document.getElementById("btn-copy") as HTMLButtonElement;
 const statusEl = document.getElementById("status")!;
 const sourceEl = document.getElementById("capture-source") as HTMLSelectElement;
@@ -13,6 +14,7 @@ const applicationEl = document.getElementById("application") as HTMLInputElement
 const MAX_LINES = 6;
 const finalLines: string[] = [];
 let currentInterim = "";
+let paused = false;
 
 function appendLine(text: string, className?: string) {
   const line = document.createElement("span");
@@ -40,6 +42,10 @@ function updateApplicationInput() {
 function resetControls() {
   btnStart.disabled = false;
   btnStop.disabled = true;
+  btnPause.disabled = true;
+  btnPause.textContent = "Pause";
+  btnPause.classList.remove("active");
+  paused = false;
   btnStart.classList.remove("active");
   btnStop.classList.remove("active");
   sourceEl.disabled = false;
@@ -62,6 +68,7 @@ btnStart.addEventListener("click", async () => {
 
   btnStart.disabled = true;
   btnStop.disabled = false;
+  btnPause.disabled = false;
   btnStart.classList.add("active");
   sourceEl.disabled = true;
   applicationEl.disabled = true;
@@ -85,10 +92,26 @@ btnStart.addEventListener("click", async () => {
 
 btnStop.addEventListener("click", async () => {
   btnStop.disabled = true;
+  btnPause.disabled = true;
   await invoke("stop_transcription");
   resetControls();
   statusEl.textContent = "disconnected";
   statusEl.className = "status";
+});
+
+btnPause.addEventListener("click", async () => {
+  const nextPaused = !paused;
+  try {
+    await invoke("set_transcription_paused", { paused: nextPaused });
+    paused = nextPaused;
+    btnPause.textContent = paused ? "Resume" : "Pause";
+    btnPause.classList.toggle("active", paused);
+    statusEl.textContent = paused ? "paused" : "connected";
+    statusEl.className = paused ? "status" : "status connected";
+  } catch (error) {
+    statusEl.textContent = `error: ${String(error)}`;
+    statusEl.className = "status error";
+  }
 });
 
 btnCopy.addEventListener("click", async () => {
@@ -123,6 +146,7 @@ listen<string>("capture-status", (event) => {
 listen<string>("dg-status", (event) => {
   statusEl.textContent = event.payload;
   statusEl.className = `status ${event.payload}`;
+  if (event.payload === "disconnected") resetControls();
 });
 
 listen<string>("dg-error", (event) => {

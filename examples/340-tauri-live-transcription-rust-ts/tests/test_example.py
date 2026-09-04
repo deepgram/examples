@@ -51,6 +51,7 @@ def test_rust_owns_capture_and_deepgram():
     assert ".diarize(true)" in main_rs
     assert "DEEPGRAM_API_KEY" in main_rs
     assert "start_transcription" in main_rs
+    assert "set_transcription_paused" in main_rs
     assert "pocketstation" in main_rs
     assert "Source::application" in main_rs
     assert "Source::system_audio" in main_rs
@@ -63,7 +64,10 @@ def test_cargo_dependencies_are_pinned():
     cargo_toml = (ROOT / "src" / "src-tauri" / "Cargo.toml").read_text()
 
     assert 'deepgram = "=0.9.2"' in cargo_toml
-    assert 'pocketstation = "=1.1.9"' in cargo_toml
+    assert cargo_toml.count('pocketstation = { version = "=1.1.10"') == 3
+    assert 'features = ["coreaudio-capture"]' in cargo_toml
+    assert 'features = ["wasapi-capture"]' in cargo_toml
+    assert 'features = ["pipewire-capture"]' in cargo_toml
     assert "tauri" in cargo_toml
 
 
@@ -89,6 +93,7 @@ def test_frontend_selects_native_capture():
     assert 'from "@tauri-apps/api/core"' in main_ts
     assert "start_transcription" in main_ts
     assert "stop_transcription" in main_ts
+    assert "set_transcription_paused" in main_ts
     assert "getUserMedia" not in main_ts
     assert "send_audio" not in main_ts
     assert "capture-source" in main_ts
@@ -97,6 +102,7 @@ def test_frontend_selects_native_capture():
     assert 'value="microphone"' in index_html
     assert 'id="application"' in index_html
     assert 'id="btn-copy"' in index_html
+    assert 'id="btn-pause"' in index_html
 
 
 def test_macos_permission_descriptions():

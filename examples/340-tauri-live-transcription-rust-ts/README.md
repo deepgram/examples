@@ -17,14 +17,10 @@ microphone**.
 
 ## Run the application
 
-Create the local environment file and set your Deepgram API key:
+Set your Deepgram API key in the shell that will start Tauri:
 
 ```bash
-cp .env.example .env
-```
-
-```text
-DEEPGRAM_API_KEY=your_api_key
+export DEEPGRAM_API_KEY="your_api_key"
 ```
 
 Install the frontend packages and start Tauri:
@@ -47,6 +43,10 @@ Start the application you want to capture before clicking **Start**. If more
 than one application matches the value you entered, PocketStation reports the
 ambiguity instead of choosing one silently.
 
+Use **Pause** to stop sending audio to Deepgram while keeping the selected
+native source open. **Resume** continues with new audio; audio produced while
+paused is intentionally not transcribed.
+
 ## Permissions
 
 macOS asks separately for microphone access and for Screen & System Audio
@@ -61,9 +61,9 @@ PipeWire and may display a desktop portal depending on the compositor.
 ```text
 selected native source
         ↓
-PocketStation 10 ms mono frames at 48 kHz
+PocketStation 10 ms frames at 48 kHz
         ↓
-linear16 conversion in a PocketStation Connector
+mono downmix and linear16 conversion in a PocketStation Connector
         ↓
 Deepgram streaming transcription
         ↓
