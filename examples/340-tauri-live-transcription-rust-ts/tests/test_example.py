@@ -32,6 +32,7 @@ def test_file_structure():
         "src/src-tauri/src/main.rs",
         "src/src-tauri/Cargo.toml",
         "src/src-tauri/Info.plist",
+        "src/src-tauri/icons/icon.ico",
         "src/src-tauri/tauri.conf.json",
         "src/src/main.ts",
         "src/index.html",
