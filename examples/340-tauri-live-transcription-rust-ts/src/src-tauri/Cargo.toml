@@ -4,12 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-deepgram = "=0.9.2"
-dotenvy = "=0.15.7"
+deepgram = { version = "=0.10.1", default-features = false, features = ["listen"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
-tauri = { version = "=2.10.3", features = [] }
+tauri = { version = "=2.11.5", features = [] }
 tokio = { version = "=1.51.0", features = ["full"] }
 
 [build-dependencies]
-tauri-build = { version = "=2.5.6", features = [] }
+tauri-build = { version = "=2.6.3", features = [] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+pocketstation = { version = "=1.1.10", default-features = false, features = ["coreaudio-capture"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+pocketstation = { version = "=1.1.10", default-features = false, features = ["wasapi-capture"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pocketstation = { version = "=1.1.10", default-features = false, features = ["pipewire-capture"] }

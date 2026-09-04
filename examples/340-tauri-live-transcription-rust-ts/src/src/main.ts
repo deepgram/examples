@@ -4,118 +4,155 @@ import { listen } from "@tauri-apps/api/event";
 const transcriptEl = document.getElementById("transcript")!;
 const btnStart = document.getElementById("btn-start") as HTMLButtonElement;
 const btnStop = document.getElementById("btn-stop") as HTMLButtonElement;
+const btnPause = document.getElementById("btn-pause") as HTMLButtonElement;
+const btnCopy = document.getElementById("btn-copy") as HTMLButtonElement;
 const statusEl = document.getElementById("status")!;
+const sourceEl = document.getElementById("capture-source") as HTMLSelectElement;
+const applicationRow = document.getElementById("application-row")!;
+const applicationEl = document.getElementById("application") as HTMLInputElement;
 
 const MAX_LINES = 6;
 const finalLines: string[] = [];
 let currentInterim = "";
+let paused = false;
 
-let mediaStream: MediaStream | null = null;
-let audioContext: AudioContext | null = null;
-let processorNode: ScriptProcessorNode | null = null;
+function appendLine(text: string, className?: string) {
+  const line = document.createElement("span");
+  line.textContent = text;
+  if (className) line.className = className;
+  if (transcriptEl.childNodes.length > 0) {
+    transcriptEl.append(document.createElement("br"));
+  }
+  transcriptEl.append(line);
+}
 
 function renderTranscript() {
-  const visible = finalLines.slice(-MAX_LINES);
-  let html = visible.map((l) => `<span>${l}</span>`).join("<br>");
-  if (currentInterim) {
-    html += `<br><span class="interim">${currentInterim}</span>`;
-  }
-  transcriptEl.innerHTML = html || "Listening...";
+  transcriptEl.replaceChildren();
+  for (const line of finalLines.slice(-MAX_LINES)) appendLine(line);
+  if (currentInterim) appendLine(currentInterim, "interim");
+  if (transcriptEl.childNodes.length === 0) transcriptEl.textContent = "Listening...";
 }
 
-// Capture microphone at 16 kHz, convert float32 to linear16 PCM,
-// and forward each chunk to the Rust backend via Tauri command.
-async function startAudioCapture() {
-  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-  // 16 kHz matches the Deepgram encoding config exactly
-  audioContext = new AudioContext({ sampleRate: 16000 });
-  const source = audioContext.createMediaStreamSource(mediaStream);
-
-  // ScriptProcessorNode is deprecated but universally supported in
-  // WebView contexts. AudioWorklet is the modern alternative but adds
-  // file complexity not warranted for this example.
-  processorNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-  processorNode.onaudioprocess = (event: AudioProcessingEvent) => {
-    const float32 = event.inputBuffer.getChannelData(0);
-
-    // Convert float32 [-1, 1] → signed 16-bit PCM
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32[i]));
-      int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-    }
-
-    invoke("send_audio", { audio: Array.from(new Uint8Array(int16.buffer)) });
-  };
-
-  source.connect(processorNode);
-  processorNode.connect(audioContext.destination);
+function updateApplicationInput() {
+  const capturesApplication = sourceEl.value === "application";
+  applicationRow.hidden = !capturesApplication;
+  applicationEl.required = capturesApplication;
 }
 
-function stopAudioCapture() {
-  if (processorNode) {
-    processorNode.disconnect();
-    processorNode = null;
-  }
-  if (audioContext) {
-    audioContext.close();
-    audioContext = null;
-  }
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
-  }
+function resetControls() {
+  btnStart.disabled = false;
+  btnStop.disabled = true;
+  btnPause.disabled = true;
+  btnPause.textContent = "Pause";
+  btnPause.classList.remove("active");
+  paused = false;
+  btnStart.classList.remove("active");
+  btnStop.classList.remove("active");
+  sourceEl.disabled = false;
+  applicationEl.disabled = false;
 }
+
+function displayText(text: string, speaker: number | null) {
+  return speaker === null ? text : `Speaker ${speaker + 1}: ${text}`;
+}
+
+sourceEl.addEventListener("change", updateApplicationInput);
+updateApplicationInput();
 
 btnStart.addEventListener("click", async () => {
+  if (sourceEl.value === "application" && !applicationEl.value.trim()) {
+    applicationEl.focus();
+    applicationEl.reportValidity();
+    return;
+  }
+
   btnStart.disabled = true;
   btnStop.disabled = false;
+  btnPause.disabled = false;
   btnStart.classList.add("active");
-  btnStop.classList.remove("active");
-
+  sourceEl.disabled = true;
+  applicationEl.disabled = true;
   finalLines.length = 0;
   currentInterim = "";
   transcriptEl.textContent = "Connecting...";
 
-  await invoke("start_transcription");
-  await startAudioCapture();
+  try {
+    await invoke("start_transcription", {
+      request: {
+        source: sourceEl.value,
+        application: applicationEl.value.trim() || null,
+      },
+    });
+  } catch (error) {
+    statusEl.textContent = `error: ${String(error)}`;
+    statusEl.className = "status error";
+    resetControls();
+  }
 });
 
 btnStop.addEventListener("click", async () => {
   btnStop.disabled = true;
-  btnStart.disabled = false;
-  btnStop.classList.remove("active");
-  btnStart.classList.remove("active");
-
-  stopAudioCapture();
+  btnPause.disabled = true;
   await invoke("stop_transcription");
+  resetControls();
   statusEl.textContent = "disconnected";
   statusEl.className = "status";
 });
 
-listen<{ text: string; is_final: boolean; speech_final: boolean; confidence: number }>(
+btnPause.addEventListener("click", async () => {
+  const nextPaused = !paused;
+  try {
+    await invoke("set_transcription_paused", { paused: nextPaused });
+    paused = nextPaused;
+    btnPause.textContent = paused ? "Resume" : "Pause";
+    btnPause.classList.toggle("active", paused);
+    statusEl.textContent = paused ? "paused" : "connected";
+    statusEl.className = paused ? "status" : "status connected";
+  } catch (error) {
+    statusEl.textContent = `error: ${String(error)}`;
+    statusEl.className = "status error";
+  }
+});
+
+btnCopy.addEventListener("click", async () => {
+  const transcript = finalLines.join("\n");
+  if (transcript) await navigator.clipboard.writeText(transcript);
+});
+
+listen<{
+  text: string;
+  is_final: boolean;
+  speech_final: boolean;
+  confidence: number;
+  speaker: number | null;
+}>(
   "transcript",
   (event) => {
     if (event.payload.is_final) {
-      finalLines.push(event.payload.text);
+      finalLines.push(displayText(event.payload.text, event.payload.speaker));
       currentInterim = "";
     } else {
-      currentInterim = event.payload.text;
+      currentInterim = displayText(event.payload.text, event.payload.speaker);
     }
     renderTranscript();
-  }
+  },
 );
+
+listen<string>("capture-status", (event) => {
+  statusEl.textContent = event.payload;
+  statusEl.className = "status connected";
+});
 
 listen<string>("dg-status", (event) => {
   statusEl.textContent = event.payload;
   statusEl.className = `status ${event.payload}`;
+  if (event.payload === "disconnected") resetControls();
 });
 
 listen<string>("dg-error", (event) => {
   statusEl.textContent = `error: ${event.payload}`;
   statusEl.className = "status error";
+  resetControls();
 });
 
 listen("utterance-end", () => {

@@ -1,32 +1,25 @@
 """Test the Tauri desktop live transcription example.
 
-The Tauri desktop app requires a full build toolchain (Rust, system WebView,
-and a display). This test verifies the example's correctness by inspecting
-source files directly — the Rust backend, Tauri configuration, and TypeScript
-frontend — without building or running the app.
+These tests inspect the Rust backend, Tauri configuration, and TypeScript
+frontend without starting a desktop window. Run the application for the real
+Deepgram and native capture check described in the README.
 """
 
+import json
 import os
 import sys
-import json
 from pathlib import Path
 
-# ── Credential check ────────────────────────────────────────────────────────
-# Exit code convention across all examples in this repo:
-#   0 = all tests passed
-#   1 = real test failure (code bug, assertion error, unexpected API response)
-#   2 = missing credentials (expected in CI until secrets are configured)
 env_example = Path(__file__).parent.parent / ".env.example"
 required = [
     line.split("=")[0].strip()
     for line in env_example.read_text().splitlines()
     if line and not line.startswith("#") and "=" in line and line[0].isupper()
 ]
-missing = [k for k in required if not os.environ.get(k)]
+missing = [key for key in required if not os.environ.get(key)]
 if missing:
     print(f"MISSING_CREDENTIALS: {','.join(missing)}", file=sys.stderr)
     sys.exit(2)
-# ────────────────────────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent.parent
 
@@ -38,116 +31,96 @@ def test_file_structure():
         "README.md",
         "src/src-tauri/src/main.rs",
         "src/src-tauri/Cargo.toml",
+        "src/src-tauri/Info.plist",
+        "src/src-tauri/icons/icon.ico",
         "src/src-tauri/tauri.conf.json",
         "src/src/main.ts",
         "src/index.html",
         "src/package.json",
     ]
-    for f in required_files:
-        full = ROOT / f
-        assert full.exists(), f"Missing required file: {f}"
-    print("File structure check passed")
+    for relative_path in required_files:
+        assert (ROOT / relative_path).exists(), f"Missing required file: {relative_path}"
 
 
-def test_rust_source_uses_deepgram_sdk():
-    """Verify the Rust source uses the Deepgram SDK correctly."""
+def test_rust_owns_capture_and_deepgram():
+    """Verify Rust owns native capture and the Deepgram connection."""
     main_rs = (ROOT / "src" / "src-tauri" / "src" / "main.rs").read_text()
 
-    assert "deepgram::Deepgram" in main_rs or "use deepgram" in main_rs, \
-        "main.rs does not import the Deepgram SDK"
-    assert "deepgram-examples" in main_rs, \
-        "main.rs missing required tag 'deepgram-examples'"
-    assert "Model::Nova3" in main_rs, \
-        "main.rs should use Nova3 model"
-    assert "DEEPGRAM_API_KEY" in main_rs, \
-        "main.rs should read DEEPGRAM_API_KEY from environment"
-    assert "send_audio" in main_rs, \
-        "main.rs should expose send_audio Tauri command"
-    assert "start_transcription" in main_rs, \
-        "main.rs should expose start_transcription Tauri command"
-
-    print("Rust source validation passed")
+    assert "deepgram::Deepgram" in main_rs or "use deepgram" in main_rs
+    assert "deepgram-examples" in main_rs
+    assert "Model::Nova3" in main_rs
+    assert ".diarize(true)" in main_rs
+    assert "DEEPGRAM_API_KEY" in main_rs
+    assert "start_transcription" in main_rs
+    assert "set_transcription_paused" in main_rs
+    assert "pocketstation" in main_rs
+    assert "Source::application" in main_rs
+    assert "Source::system_audio" in main_rs
+    assert "Source::microphone_default" in main_rs
+    assert "Connector::from_audio_fn" in main_rs
 
 
-def test_cargo_toml_pins_deepgram():
-    """Verify Cargo.toml declares the deepgram crate dependency."""
+def test_cargo_dependencies_are_pinned():
+    """Verify the example uses released Deepgram and PocketStation crates."""
     cargo_toml = (ROOT / "src" / "src-tauri" / "Cargo.toml").read_text()
 
-    assert "deepgram" in cargo_toml, \
-        "Cargo.toml must declare the deepgram crate as a dependency"
-    assert "0.9.2" in cargo_toml, \
-        "Cargo.toml should pin deepgram at version 0.9.2"
-    assert "tauri" in cargo_toml, \
-        "Cargo.toml must declare the tauri crate as a dependency"
+    assert 'deepgram = { version = "=0.10.1"' in cargo_toml
+    assert 'features = ["listen"]' in cargo_toml
+    assert 'tauri = { version = "=2.11.5"' in cargo_toml
+    assert cargo_toml.count('pocketstation = { version = "=1.1.10"') == 3
+    assert 'features = ["coreaudio-capture"]' in cargo_toml
+    assert 'features = ["wasapi-capture"]' in cargo_toml
+    assert 'features = ["pipewire-capture"]' in cargo_toml
+    assert "tauri" in cargo_toml
 
-    print("Cargo.toml declares deepgram and tauri dependencies")
 
-
-def test_tauri_conf_settings():
-    """Verify tauri.conf.json has the expected app configuration."""
-    conf_path = ROOT / "src" / "src-tauri" / "tauri.conf.json"
-    conf = json.loads(conf_path.read_text())
-
+def test_tauri_configuration():
+    """Verify the desktop window and application identity."""
+    conf = json.loads((ROOT / "src" / "src-tauri" / "tauri.conf.json").read_text())
     product_name = conf.get("productName", "")
-    assert "deepgram" in product_name.lower() or "transcription" in product_name.lower(), \
-        f"tauri.conf.json productName should reference Deepgram or Transcription, got: {product_name}"
-
-    # App identifier should follow reverse-domain convention
     identifier = conf.get("identifier", "")
-    assert "deepgram" in identifier.lower(), \
-        f"tauri.conf.json identifier should include 'deepgram', got: {identifier}"
-
-    # Must define at least one window
     windows = conf.get("app", {}).get("windows", [])
-    assert len(windows) > 0, \
-        "tauri.conf.json must define at least one window"
 
-    assert windows[0].get("width", 0) > 0, "Window width must be positive"
-    assert windows[0].get("height", 0) > 0, "Window height must be positive"
-
-    print(f"tauri.conf.json settings valid:")
-    print(f"  productName: {product_name}")
-    print(f"  identifier: {identifier}")
-    print(f"  window: {windows[0].get('width')}x{windows[0].get('height')}")
+    assert "deepgram" in product_name.lower() or "transcription" in product_name.lower()
+    assert "deepgram" in identifier.lower()
+    assert windows
+    assert windows[0].get("width", 0) > 0
+    assert windows[0].get("height", 0) > 0
 
 
-def test_typescript_frontend_uses_tauri_invoke():
-    """Verify the TypeScript frontend calls the Rust backend via Tauri's invoke()."""
+def test_frontend_selects_native_capture():
+    """Verify the frontend requests one explicit native source."""
     main_ts = (ROOT / "src" / "src" / "main.ts").read_text()
+    index_html = (ROOT / "src" / "index.html").read_text()
 
-    assert 'from "@tauri-apps/api/core"' in main_ts or \
-           'from "@tauri-apps/api"' in main_ts, \
-        "main.ts must import from @tauri-apps/api"
-    assert "invoke" in main_ts, \
-        "main.ts must call invoke() to communicate with the Rust backend"
-    assert "start_transcription" in main_ts, \
-        "main.ts must invoke start_transcription Tauri command"
-    assert "send_audio" in main_ts, \
-        "main.ts must invoke send_audio Tauri command"
-    assert "stop_transcription" in main_ts, \
-        "main.ts must invoke stop_transcription Tauri command"
+    assert 'from "@tauri-apps/api/core"' in main_ts
+    assert "start_transcription" in main_ts
+    assert "stop_transcription" in main_ts
+    assert "set_transcription_paused" in main_ts
+    assert "getUserMedia" not in main_ts
+    assert "send_audio" not in main_ts
+    assert "capture-source" in main_ts
+    assert 'value="application"' in index_html
+    assert 'value="system_audio"' in index_html
+    assert 'value="microphone"' in index_html
+    assert 'id="application"' in index_html
+    assert 'id="btn-copy"' in index_html
+    assert 'id="btn-pause"' in index_html
 
-    print("TypeScript frontend correctly uses Tauri invoke() for backend communication")
 
+def test_macos_permission_descriptions():
+    """Verify packaged macOS builds explain both permission requests."""
+    info_plist = (ROOT / "src" / "src-tauri" / "Info.plist").read_text()
 
-def test_typescript_frontend_audio_capture():
-    """Verify the TypeScript frontend captures microphone audio for Deepgram."""
-    main_ts = (ROOT / "src" / "src" / "main.ts").read_text()
-
-    assert "getUserMedia" in main_ts, \
-        "main.ts must use getUserMedia to capture microphone audio"
-    # 16000 Hz matches the Deepgram linear16 encoding config in main.rs
-    assert "16000" in main_ts, \
-        "main.ts should configure audio at 16000 Hz to match Deepgram encoding"
-
-    print("TypeScript frontend captures microphone audio at 16 kHz for Deepgram")
+    assert "NSMicrophoneUsageDescription" in info_plist
+    assert "NSScreenCaptureUsageDescription" in info_plist
 
 
 if __name__ == "__main__":
     test_file_structure()
-    test_rust_source_uses_deepgram_sdk()
-    test_cargo_toml_pins_deepgram()
-    test_tauri_conf_settings()
-    test_typescript_frontend_uses_tauri_invoke()
-    test_typescript_frontend_audio_capture()
-    print("\nAll tests passed")
+    test_rust_owns_capture_and_deepgram()
+    test_cargo_dependencies_are_pinned()
+    test_tauri_configuration()
+    test_frontend_selects_native_capture()
+    test_macos_permission_descriptions()
+    print("All tests passed")
