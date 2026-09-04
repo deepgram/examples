@@ -10,7 +10,7 @@ microphone**.
 
 ## Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) 1.85 or later
+- The current stable [Rust toolchain](https://www.rust-lang.org/tools/install)
 - [Node.js](https://nodejs.org/) 18 or later
 - The [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system
 - A [Deepgram API key](https://console.deepgram.com/)

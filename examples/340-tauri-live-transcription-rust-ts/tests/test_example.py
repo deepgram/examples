@@ -63,7 +63,8 @@ def test_cargo_dependencies_are_pinned():
     """Verify the example uses released Deepgram and PocketStation crates."""
     cargo_toml = (ROOT / "src" / "src-tauri" / "Cargo.toml").read_text()
 
-    assert 'deepgram = "=0.9.2"' in cargo_toml
+    assert 'deepgram = "=0.10.1"' in cargo_toml
+    assert 'tauri = { version = "=2.11.5"' in cargo_toml
     assert cargo_toml.count('pocketstation = { version = "=1.1.10"') == 3
     assert 'features = ["coreaudio-capture"]' in cargo_toml
     assert 'features = ["wasapi-capture"]' in cargo_toml
