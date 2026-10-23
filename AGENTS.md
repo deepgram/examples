@@ -6,9 +6,9 @@
 
 1. **Incremental changes, comprehensive reviews.** Make changes incrementally. But before finishing any task, do a comprehensive review to spot architectural misses — port conflicts, auth flow breakage, env var mismatches, or contract changes that affect other services.
 
-2. **Update dx-stack docs when you change cross-stack behavior.** If your change affects ports, auth flows, env vars, redirect URIs, API contracts, or deployment config, update the reference docs in your local checkout of https://github.com/deepgram/dx-stack before finishing.
+2. **Update dx-stack docs when you change cross-stack behavior.** If your change affects ports, auth flows, env vars, redirect URIs, API contracts, or deployment config, update the reference docs in your local checkout of https://github.com/deepgram/dx-stack before finishing. The `dx-document-change` skill in dx-stack (loaded via the dx-stack MCP, see `dx-stack/docs/mcps.md`) walks through these updates and replaces the old per-repo hook; the table below is the manual fallback.
 
-3. **Know the architecture.** Read `AGENTS.md` and `docs/architecture.md` in your `dx-stack` checkout for the full stack context — port map, auth flows, service-to-service communication, and environment matrix.
+3. **Know the architecture.** Read `AGENTS.md` (port map, cross-service architecture, environments, deployment) and `docs/auth.md` (auth flows) in your `dx-stack` checkout for the full stack context.
 
 ### What requires dx-stack updates
 
