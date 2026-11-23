@@ -6,7 +6,8 @@
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node tests/test.js"
+    "test": "node --test tests/function-calls.test.js && node tests/test.js",
+    "test:unit": "node --test tests/function-calls.test.js"
   },
   "dependencies": {
     "dotenv": "16.6.1",
