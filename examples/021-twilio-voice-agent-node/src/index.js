@@ -84,7 +84,7 @@ function handleFunctionCall(name, args) {
   return JSON.stringify({ error: 'Unknown function' });
 }
 
-function createApp() {
+function createApp({ AgentWebSocket = WebSocket } = {}) {
   const app = express();
   expressWs(app);
 
@@ -145,7 +145,7 @@ function createApp() {
     console.log('[media] Twilio WebSocket connected');
 
     // ── Open Deepgram Voice Agent WebSocket ─────────────────────────────
-    agentWs = new WebSocket(DG_AGENT_URL, {
+    agentWs = new AgentWebSocket(DG_AGENT_URL, {
       headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
     });
 
@@ -209,9 +209,9 @@ function createApp() {
               console.log(`[function] ${fn.name}(${fn.arguments})`);
               let args = {};
               try { args = JSON.parse(fn.arguments); } catch {}
-              const output = handleFunctionCall(fn.name, args);
+              const content = handleFunctionCall(fn.name, args);
               agentWs.send(
-                JSON.stringify({ type: 'FunctionCallResponse', id: fn.id, output }),
+                JSON.stringify({ type: 'FunctionCallResponse', id: fn.id, name: fn.name, content }),
               );
             }
             break;

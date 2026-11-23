@@ -73,6 +73,18 @@ curl -X POST http://localhost:3000/outbound \
 7. When the LLM decides to call a function (e.g., `check_order_status`), the server receives a `FunctionCallRequest`, executes the function locally, and sends the result back via `FunctionCallResponse`
 8. If the caller interrupts (barge-in), the server sends a `clear` event to Twilio to stop playback immediately
 
+A response echoes the request's `id` and `name` and sends the serialized result in `content`:
+
+```js
+{ type: 'FunctionCallResponse', id: fn.id, name: fn.name, content }
+```
+
+See the [Function Call Response reference](https://developers.deepgram.com/docs/voice-agent-function-call-response).
+The Node server is the application-side client connected to Deepgram; these functions run there.
+
+Run the offline function-message regression test with `pnpm test:unit`. It uses a fake upstream
+agent socket and makes no Deepgram or Twilio API calls. `pnpm test` runs this regression followed by the existing live integration suite.
+
 ## Starter templates
 
 If you want a ready-to-run base for your own project, check the [deepgram-starters](https://github.com/orgs/deepgram-starters/repositories) org — there are starter repos for every language and every Deepgram product.
